@@ -1,7 +1,7 @@
 'use strict';
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 
-const VERSION = '1.0.1';
+const VERSION = '1.0.2';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
