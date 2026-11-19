@@ -1,0 +1,21 @@
+{
+  "name": "Agente Running",
+  "short_name": "Agente",
+  "description": "Nutrición y running personal",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f5f3",
+  "theme_color": "#c2410c",
+  "lang": "es",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Añadir comida", "url": "./#comida", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Running", "url": "./#run", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
