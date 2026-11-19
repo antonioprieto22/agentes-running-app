@@ -27,6 +27,14 @@ body[data-sec="run"] { --acc: var(--r-acc); --acc2: var(--r-acc2); --soft: var(-
 body[data-sec="ajustes"] { --acc: var(--muted); --acc2: var(--muted); --soft: var(--card); --ink: var(--text); }
 
 * { box-sizing: border-box; margin: 0; }
+[hidden] { display: none !important; }
+/* En pantallas grandes, la app se centra como en un móvil */
+@media (min-width: 700px) {
+  body { max-width: 560px; margin: 0 auto; box-shadow: 0 0 0 1px var(--line); }
+  .tabs, .sheet-card { max-width: 560px; margin: 0 auto; }
+  .sheet { justify-content: center; }
+  .fab { right: calc(50% - 280px + 18px); }
+}
 html, body { background: var(--bg); }
 body {
   font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
