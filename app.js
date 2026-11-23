@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.0.1';
+const VERSION = '2.0.2';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -641,16 +641,19 @@ function irRunTab(k) {
 
 // Gestos: horizontal = cambiar de pestaña; vertical sobre la noria = girarla.
 function gestos() {
-  let x0 = 0, y0 = 0, t0 = 0, enRueda = false;
+  let x0 = 0, y0 = 0, t0 = 0, enRueda = false, enSemana = false;
   const v = $('#v-run');
-  v.addEventListener('touchstart', e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); enRueda = !!e.target.closest('#rueda'); }, { passive: true });
+  v.addEventListener('touchstart', e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); enRueda = !!e.target.closest('#rueda'); enSemana = !!e.target.closest('.semana'); }, { passive: true });
   v.addEventListener('touchend', e => {
     const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
     if (Date.now() - t0 > 800) return;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      // Deslizar sobre el calendario semanal = cambiar de sección directamente.
+      if (enSemana) { dx < 0 ? irA('fuerza', 'left') : irA('nutri', 'right'); return; }
       const i = RUN_TABS.findIndex(x => x[0] === runTab) + (dx < 0 ? 1 : -1);
       if (RUN_TABS[i]) irRunTab(RUN_TABS[i][0]);
       else if (i < 0) irA('nutri', 'right');           // desde Resumen, hacia la izquierda → Nutrición
+      else irA('fuerza', 'left');                       // desde Strava, hacia la derecha → Fuerza
     } else if (enRueda && Math.abs(dy) > 35 && Math.abs(dy) > Math.abs(dx)) girarRueda(dy < 0 ? 1 : -1);
   }, { passive: true });
   // En Nutrición, deslizar hacia la derecha (dedo a la izquierda) → Running.
@@ -659,6 +662,13 @@ function gestos() {
   n.addEventListener('touchend', e => {
     const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
     if (Date.now() - t0 < 800 && dx < -60 && Math.abs(dx) > Math.abs(dy) * 1.3) { runTab = 'resumen'; irA('run', 'left'); }
+  }, { passive: true });
+  // En Fuerza, deslizar hacia la izquierda (dedo a la derecha) → Running.
+  const fz = $('#v-fuerza');
+  fz.addEventListener('touchstart', e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); }, { passive: true });
+  fz.addEventListener('touchend', e => {
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    if (Date.now() - t0 < 800 && dx > 60 && Math.abs(dx) > Math.abs(dy) * 1.3) { runTab = 'resumen'; irA('run', 'right'); }
   }, { passive: true });
   let bloqueo = 0;
   v.addEventListener('wheel', e => {
