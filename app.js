@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -115,6 +115,7 @@ let D = {};
 let seccion = 'nutri';
 let abiertas = new Set();      // comidas desplegadas
 let macrosAbiertos = false;
+let balVolteado = false;    // día cerrado: se ve la rueda (true) o el balance (false)
 
 async function cargar() {
   if (!cfg.token) { irA('ajustes'); return; }
@@ -211,9 +212,10 @@ function renderNutri(hoy) {
       <span class="bal-eq">${def ? '≈ ' + (Math.abs(bal) / 7700).toFixed(2).replace('.', ',') + ' kg de grasa' : 'Mañana compensa con un día más ligero'} · ${fmt(n.act.pasos || 0)} pasos</span>
     </button>`;
 
-  $('#v-nutri').innerHTML = `${balanceHero}
-    <div class="card hero2 ${bal != null ? 'compact' : ''}">
-      <button class="ring2" id="ring" aria-label="Ver macros">
+  const cerrado = bal != null;
+  const ringCard = `
+    <div class="card hero2 ${cerrado ? 'fc-face fc-back' : ''}">
+      <button class="ring2" id="ring" aria-label="${cerrado ? 'Volver al balance' : 'Ver macros'}">
         <svg viewBox="0 0 220 220">
           <defs>
             <linearGradient id="gArc" x1="0" y1="0" x2="1" y2="1">
@@ -231,7 +233,7 @@ function renderNutri(hoy) {
         <div class="ring-lbl">
           <b id="ring-num">0</b>
           <small>de ${fmt(ref)} kcal</small>
-          <span class="ring-hint">${ICON_DOWN}</span>
+          <span class="ring-hint">${cerrado ? '↺' : ICON_DOWN}</span>
         </div>
       </button>
       <div class="pill-row">
@@ -240,7 +242,7 @@ function renderNutri(hoy) {
           : `<span class="pill soft">${restante >= 0 ? `Quedan ${fmt(restante)}` : `+${fmt(-restante)} sobre TMB`}</span>
              <button class="pill action" id="btn-cierre">⌚ Cerrar día</button>`}
       </div>
-      <div class="macros-panel ${macrosAbiertos ? 'open' : ''}" id="macros">
+      <div class="macros-panel ${macrosAbiertos || cerrado ? 'open' : ''}" id="macros">
         <div class="macro-rings">
           ${miniRing('Proteína', n.t.P, n.protRef || 150, '#22c55e')}
           ${miniRing('Hidratos', n.t.HC, Math.max(n.t.HC, 250), '#3b82f6')}
@@ -252,7 +254,14 @@ function renderNutri(hoy) {
           <div><span>Gasto</span><b>${n.gasto != null ? fmt(n.gasto) : '—'}</b></div>
         </div>
       </div>
-    </div>
+    </div>`;
+
+  // Día cerrado: tarjeta giratoria → delante el balance (lo único visible), detrás la rueda.
+  $('#v-nutri').innerHTML = `${cerrado
+    ? `<div class="flipcard ${balVolteado ? 'flipped' : ''}" id="bal-flip"><div class="fc-inner">
+        <div class="fc-face fc-front">${balanceHero}</div>${ringCard}
+      </div></div>`
+    : ringCard}
     ${porComida.length ? porComida.map(({ c, rs }) => {
       const sub = rs.reduce((s, r) => s + num(r.kcal), 0), open = abiertas.has(c);
       return `<div class="meal-card ${open ? 'open' : ''}">
@@ -266,10 +275,20 @@ function renderNutri(hoy) {
       </div>`;
     }).join('') : `<button class="empty-cta" id="empty-add"><span>📷</span><b>Registra tu primera comida</b><small>Haz una foto del plato</small></button>`}`;
 
-  animarAnillo(n.t.kcal, ref);
-  if (bal != null) contar($('#bal-num'), Math.abs(bal), def ? '−' : '+');
-  $('#bal-hero')?.addEventListener('click', () => { macrosAbiertos = true; $('#macros').classList.add('open'); $('#ring').scrollIntoView({ behavior: 'smooth' }); });
-  $('#ring').addEventListener('click', () => { macrosAbiertos = !macrosAbiertos; $('#macros').classList.toggle('open', macrosAbiertos); });
+  if (cerrado) {
+    contar($('#bal-num'), Math.abs(bal), def ? '−' : '+');
+    if (balVolteado) animarAnillo(n.t.kcal, ref);
+    const girar = () => {
+      balVolteado = !balVolteado;
+      $('#bal-flip').classList.toggle('flipped', balVolteado);
+      if (balVolteado) animarAnillo(n.t.kcal, ref); else contar($('#bal-num'), Math.abs(bal), def ? '−' : '+');
+    };
+    $('#bal-hero').addEventListener('click', girar);
+    $('#ring').addEventListener('click', girar);
+  } else {
+    animarAnillo(n.t.kcal, ref);
+    $('#ring').addEventListener('click', () => { macrosAbiertos = !macrosAbiertos; $('#macros').classList.toggle('open', macrosAbiertos); });
+  }
   $('#btn-cierre')?.addEventListener('click', () => abrirSheet('cierre'));
   $('#empty-add')?.addEventListener('click', () => abrirSheet());
   $$('[data-meal]').forEach(b => b.addEventListener('click', () => {
@@ -480,14 +499,12 @@ const SIMBOLO = {
 
 function logroHTML(e, a, fallo) {
   const t = tipoSesion(`${e.tipo} ${e.notas}`);
-  const lineas = a ? a.split('\n').filter(l => l.startsWith('- ')).slice(0, 4) : [];
+  // Solo el resumen; ritmo, FC, puntos fuertes y mejoras aparecen al tocar la tarjeta.
   return `<button class="logro t-${t} ${a ? valClase(a) : ''}" id="logro">
     <span class="logro-tag">🏅 Logro del día</span>
     <span class="sym big">${SIMBOLO[t]}</span>
     <b class="logro-km"><span id="logro-km">0</span><small>km</small></b>
-    <span class="logro-stats">${esc(e.duracion_min)}' · ${esc(e.ritmo_min_km)}/km${e.fc_media ? ' · ' + esc(e.fc_media) + ' ppm' : ''}${e.rpe ? ' · RPE ' + esc(e.rpe) : ''}</span>
-    ${a ? `<span class="logro-val">${valIcon(a)} ${esc(tituloAn(a))}</span>
-      <ul class="logro-list">${lineas.map(l => `<li>${esc(l.slice(2))}</li>`).join('')}</ul>`
+    ${a ? `<span class="logro-val">${valIcon(a)} ${esc(tituloAn(a))}</span><span class="tap-hint">Toca para ver el análisis</span>`
     : !cfg.gemini ? '<span class="logro-val">🔑 Añade la clave de Gemini para el análisis</span>'
     : fallo ? `<span class="logro-val">⚠️ ${esc(fallo)} · <u>Reintentar</u></span>`
     : '<span class="logro-val"><i class="spinner"></i> Analizando tu sesión…</span>'}
