@@ -2,13 +2,15 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
   comidas: 'nutricion/comidas.csv', alimentos: 'nutricion/alimentos.csv', actividad: 'nutricion/actividad.csv',
   entrenos: 'running/entrenos.csv', peso: 'peso.csv', analisis: 'running/analisis.md',
+  stravaEstado: 'running/strava-estado.json',
 };
+const OPCIONALES = new Set(['analisis', 'stravaEstado']);   // pueden no existir todavía
 const CLAUDE_URL = 'https://claude.ai/code';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const COMIDAS = ['desayuno', 'almuerzo', 'comida', 'merienda', 'cena', 'snack'];
@@ -25,7 +27,7 @@ const fmt = n => Math.round(n).toLocaleString('es-ES');
 // ---------- configuración ----------
 let cfg = {};
 try { cfg = JSON.parse(localStorage.getItem('cfg') || '{}'); } catch { cfg = {}; }
-cfg = { owner: 'antonioprieto22', repo: 'agentes-running', token: '', gemini: '', gModel: '', ...cfg };
+cfg = { owner: 'antonioprieto22', repo: 'agentes-running', token: '', gemini: '', gModels: [], ...cfg };
 const saveCfg = () => { try { localStorage.setItem('cfg', JSON.stringify(cfg)); } catch { /* sin almacenamiento */ } };
 
 // ---------- fechas ----------
@@ -118,7 +120,8 @@ async function cargar() {
   if (!cfg.token) { irA('ajustes'); return; }
   const b = $('#btn-sync'); b.classList.add('spin');
   try {
-    const pares = await Promise.all(Object.entries(FILES).map(async ([k, p]) => [k, await getFile(p)]));
+    const pares = await Promise.all(Object.entries(FILES).map(async ([k, p]) =>
+      [k, OPCIONALES.has(k) ? await getFile(p).catch(() => ({ text: '', sha: undefined })) : await getFile(p)]));
     D = Object.fromEntries(pares);
     render();
   } catch (e) { toast(e.message); if (!Object.keys(D).length) irA('ajustes'); }
@@ -319,14 +322,19 @@ function analisisDe(e) {
   return txt.slice(txt.lastIndexOf('## ', i), fin < 0 ? undefined : fin).trim();
 }
 
-function renderRun(hoy) {
+const ICON_STRAVA = '<svg viewBox="0 0 24 24" class="strava-svg"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>';
+const ICON_GAUGE = '<svg viewBox="0 0 24 24"><path d="M12 14l4-4M3.3 17a9 9 0 1 1 17.4 0"/></svg>';
+const ICON_LIST = '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>';
+const RUN_TABS = [['resumen', 'Resumen', ICON_GAUGE], ['sesiones', 'Sesiones', ICON_LIST], ['strava', 'Strava', ICON_STRAVA]];
+let ruedaIdx = 0, ruedaN = 0;
+
+function renderRun(hoy, dir) {
   const r = runInfo(hoy), plan = planRows();
   const hechos = new Set(r.all.map(e => e.fecha));
   $('#v-run').innerHTML = `
-    <div class="subtabs">${[['resumen', 'Resumen'], ['sesiones', 'Sesiones'], ['strava', 'Strava']]
-      .map(([k, l]) => `<button data-rt="${k}" class="${runTab === k ? 'on' : ''}">${k === 'strava' ? '<i class="st-dot"></i>' : ''}${l}</button>`).join('')}</div>
-    <div id="run-body"></div>`;
-  $$('[data-rt]').forEach(b => b.addEventListener('click', () => { runTab = b.dataset.rt; renderRun(hoy); }));
+    <div class="subtabs">${RUN_TABS.map(([k, l, ic]) => `<button data-rt="${k}" class="${runTab === k ? 'on' : ''} ${k}">${ic}<span>${l}</span></button>`).join('')}</div>
+    <div id="run-body" class="${dir ? 'slide-' + dir : ''}"></div>`;
+  $$('[data-rt]').forEach(b => b.addEventListener('click', () => irRunTab(b.dataset.rt)));
   const body = $('#run-body');
 
   if (runTab === 'sesiones') {
@@ -341,35 +349,38 @@ function renderRun(hoy) {
     $$('[data-ses]').forEach(b => b.addEventListener('click', () => verSesion(r.all[+b.dataset.ses])));
     return;
   }
-
   if (runTab === 'strava') { renderStrava(body, r); return; }
 
-  // Resumen: próxima sesión en grande + la siguiente asomando detrás
-  const pend = plan.filter(x => esSesion(x) && (x.fecha > hoy || (x.fecha === hoy && !hechos.has(hoy))));
-  const [s1, s2] = pend;
+  // Resumen
+  const pend = plan.filter(x => esSesion(x) && (x.fecha > hoy || (x.fecha === hoy && !hechos.has(hoy)))).slice(0, 12);
+  ruedaN = pend.length; ruedaIdx = Math.min(ruedaIdx, Math.max(0, ruedaN - 1));
   const lun = lunes(hoy), dom = addDays(lun, 6);
   const semPlan = r1(plan.filter(x => x.fecha >= lun && x.fecha <= dom && esSesion(x)).reduce((s, x) => s + kmPlan(x), 0));
   const semAct = r.semanas.at(-1), maxKm = Math.max(5, semPlan, ...r.semanas.map(s => s.km));
   const pct = semPlan ? Math.min(1, semAct.km / semPlan) : 0;
   const ultima = r.all.filter(e => e.fecha >= addDays(hoy, -3)).at(-1);
-  const aUlt = ultima && analisisDe(ultima);
+  const aUlt = ultima && analisisDe(ultima), fallo = ultima && fallidos.get(refDe(ultima));
 
-  const cardSesion = (x, cls) => {
-    if (!x) return '';
+  const tarjeta = (x, i) => {
     const d = new Date(x.fecha + 'T12:00:00Z');
     const cuando = x.fecha === hoy ? 'Hoy' : x.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[d.getUTCDay()];
-    return `<div class="next ${cls}">
+    return `<div class="next" data-i="${i}">
       <span class="next-when">${cuando} · ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span>
       <b class="next-what">${esc(x.sesion)}</b>
-      ${cls === 'front' ? `<span class="next-detail">${esc(x.detalle)}</span>` : ''}
+      <span class="next-detail">${esc(x.detalle)}</span>
     </div>`;
   };
+  let chip = '';
+  if (ultima && aUlt) chip = `<button class="analysis-chip ${valClase(aUlt)}" id="chip-an">${valIcon(aUlt)} <span>${esc(tituloAn(aUlt))}</span></button>`;
+  else if (ultima && !cfg.gemini) chip = `<button class="analysis-chip" id="chip-an">🔑 <span>Añade la clave de Gemini para analizar tus entrenos</span></button>`;
+  else if (ultima && fallo) chip = `<button class="analysis-chip mid" id="chip-an">⚠️ <span>${esc(fallo)} · <u>Reintentar</u></span></button>`;
+  else if (ultima) chip = `<div class="analysis-chip"><i class="spinner"></i><span>Analizando tu ${esc(ultima.tipo)} del ${new Date(ultima.fecha + 'T12:00:00Z').getUTCDate()}…</span></div>`;
 
-  body.innerHTML = `
-    ${ultima ? `<button class="analysis-chip ${aUlt ? valClase(aUlt) : 'pending'}" id="chip-an">
-      ${aUlt ? `${valIcon(aUlt)} <span>${esc(tituloAn(aUlt))}</span>` : `<i class="spinner"></i><span>${cfg.gemini ? 'Analizando tu ' + esc(ultima.tipo) + ' del ' + new Date(ultima.fecha + 'T12:00:00Z').getUTCDate() + '…' : 'Añade la clave de Gemini para analizar tus entrenos'}</span>`}
-    </button>` : ''}
-    <div class="stack-next">${cardSesion(s2, 'back')}${cardSesion(s1, 'front') || '<div class="next front"><b class="next-what">Sin sesiones pendientes</b><span class="next-detail">Pide un plan nuevo al agente</span></div>'}</div>
+  body.innerHTML = `${chip}
+    <div class="rueda" id="rueda">${pend.map(tarjeta).join('') || '<div class="next pos0"><b class="next-what">Sin sesiones pendientes</b><span class="next-detail">Pide un plan nuevo al agente</span></div>'}
+      ${ruedaN > 1 ? `<div class="rueda-dots">${pend.map((_, i) => `<i data-d="${i}"></i>`).join('')}</div>` : ''}
+    </div>
+    ${ruedaN > 1 ? '<p class="rueda-hint">Desliza ↑↓ para ver más sesiones</p>' : ''}
     <div class="card vol">
       <div class="vol-head"><span>Esta semana</span><span class="pill soft">ACWR ${r.acwr ?? '—'}${r.fiable ? '' : '*'}</span></div>
       <div class="vol-num"><b>${semAct.km}</b><span>/ ${semPlan || '—'} km</span></div>
@@ -379,8 +390,53 @@ function renderRun(hoy) {
         <b>${s.km}</b><span>${s.now ? 'hoy' : new Date(s.lunes + 'T12:00:00Z').getUTCDate() + ' ' + MESES[new Date(s.lunes + 'T12:00:00Z').getUTCMonth()]}</span></div>`).join('')}</div>
     </div>`;
 
-  $('#chip-an')?.addEventListener('click', () => (aUlt ? verSesion(ultima) : cfg.gemini ? null : irA('ajustes')));
-  if (ultima && !aUlt && cfg.gemini) analizarAuto(ultima);
+  colocarRueda();
+  $$('#rueda .next').forEach(c => c.addEventListener('click', () => { const i = +c.dataset.i; if (i !== ruedaIdx) { ruedaIdx = i; colocarRueda(); } }));
+  $('#chip-an')?.addEventListener('click', () => {
+    if (aUlt) return verSesion(ultima);
+    if (!cfg.gemini) return irA('ajustes');
+    fallidos.delete(refDe(ultima)); renderRun(hoy); analizarAuto(ultima);
+  });
+  if (ultima && !aUlt && !fallo && cfg.gemini) analizarAuto(ultima);
+}
+
+// Noria: cada tarjeta se coloca según su distancia a la seleccionada.
+function colocarRueda() {
+  $$('#rueda .next').forEach(c => {
+    const o = +c.dataset.i - ruedaIdx;
+    c.className = 'next ' + (o < 0 ? 'gone' : o === 0 ? 'pos0' : o === 1 ? 'pos1' : o === 2 ? 'pos2' : 'hide');
+  });
+  $$('#rueda-dots i, .rueda-dots i').forEach(d => d.classList.toggle('on', +d.dataset.d === ruedaIdx));
+}
+function girarRueda(paso) {
+  const n = Math.max(0, Math.min(ruedaN - 1, ruedaIdx + paso));
+  if (n === ruedaIdx) { $('#rueda')?.classList.add('tope'); setTimeout(() => $('#rueda')?.classList.remove('tope'), 300); return; }
+  ruedaIdx = n; colocarRueda(); navigator.vibrate?.(8);
+}
+function irRunTab(k) {
+  const a = RUN_TABS.findIndex(t => t[0] === runTab), b = RUN_TABS.findIndex(t => t[0] === k);
+  if (a === b) return;
+  runTab = k; renderRun(ahora().fecha, b > a ? 'left' : 'right');
+}
+
+// Gestos: horizontal = cambiar de pestaña; vertical sobre la noria = girarla.
+function gestos() {
+  let x0 = 0, y0 = 0, t0 = 0, enRueda = false;
+  const v = $('#v-run');
+  v.addEventListener('touchstart', e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); enRueda = !!e.target.closest('#rueda'); }, { passive: true });
+  v.addEventListener('touchend', e => {
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    if (Date.now() - t0 > 800) return;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      const i = RUN_TABS.findIndex(x => x[0] === runTab) + (dx < 0 ? 1 : -1);
+      if (RUN_TABS[i]) irRunTab(RUN_TABS[i][0]);
+    } else if (enRueda && Math.abs(dy) > 35 && Math.abs(dy) > Math.abs(dx)) girarRueda(dy < 0 ? 1 : -1);
+  }, { passive: true });
+  let bloqueo = 0;
+  v.addEventListener('wheel', e => {
+    if (!e.target.closest('#rueda') || Date.now() < bloqueo) return;
+    e.preventDefault(); bloqueo = Date.now() + 350; girarRueda(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
 }
 
 const valClase = a => (/Valoración:\*\* bien/.test(a) ? 'ok' : /Valoración:\*\* regular/.test(a) ? 'mid' : 'bad');
@@ -388,27 +444,36 @@ const valIcon = a => ({ ok: '✅', mid: '🟡', bad: '🔧' }[valClase(a)]);
 const tituloAn = a => (a.match(/\*\*Valoración:\*\* \w+ — (.+)/) || [])[1] || 'Ver análisis';
 
 function renderStrava(body, r) {
-  const sv = r.all.filter(e => e.fuente === 'strava'), ult = sv.at(-1);
+  const sv = r.all.filter(e => e.fuente === 'strava');
+  let st = null;
+  try { st = JSON.parse(D.stravaEstado?.text || 'null'); } catch { st = null; }
+  const fCorta = f => (f ? new Date(f + 'T12:00:00Z').getUTCDate() + ' ' + MESES[new Date(f + 'T12:00:00Z').getUTCMonth()] : '—');
+  const u = st?.ultima;
   body.innerHTML = `
     <div class="card strava">
-      <div class="strava-head"><span class="strava-logo">S</span>
-        <div><b>${sv.length ? 'Conectado' : 'Sin actividades aún'}</b><span class="muted">Sincroniza solo cada 3 h</span></div>
-        <i class="st-dot big ${sv.length ? 'on' : ''}"></i></div>
+      <div class="strava-head"><a class="strava-logo" href="https://www.strava.com/dashboard" target="_blank" rel="noopener">${ICON_STRAVA}</a>
+        <div><b>Strava conectado</b><span class="muted">Se sincroniza solo cada 3 h</span></div>
+        <i class="st-dot big on"></i></div>
+      ${u ? `<div class="strava-last">
+          <span class="muted">Última actividad en tu Strava</span>
+          <b>${fCorta(u.fecha)} · ${esc(u.km)} km</b>
+          <span class="tag">${u.estado === 'importada' ? 'importada ✓' : 'ya registrada con Mi Fitness'}</span>
+        </div>` : ''}
       <div class="stat-row">
         <div><span>Importadas</span><b>${sv.length}</b></div>
-        <div><span>Última</span><b>${ult ? new Date(ult.fecha + 'T12:00:00Z').getUTCDate() + ' ' + MESES[new Date(ult.fecha + 'T12:00:00Z').getUTCMonth()] : '—'}</b></div>
-        <div><span>Distancia</span><b>${ult ? esc(ult.distancia_km) + ' km' : '—'}</b></div>
+        <div><span>Última importada</span><b>${fCorta(sv.at(-1)?.fecha)}</b></div>
+        <div><span>Comprobado</span><b id="st-run">—</b></div>
       </div>
-      <p class="muted" id="st-run"></p>
-      <button class="btn primary" id="st-sync">Sincronizar ahora</button>
+      ${u && u.fecha < addDays(ahora().fecha, -2) && r.all.some(e => e.fecha > u.fecha)
+        ? `<p class="aviso">⚠️ Tienes entrenos posteriores al ${fCorta(u.fecha)} que no han llegado a Strava. Revisa en Mi Fitness → Perfil → Cuentas vinculadas → Strava.</p>` : ''}
+      <button class="btn strava-btn" id="st-sync">${ICON_STRAVA} Sincronizar ahora</button>
       <a class="btn ghost" href="https://www.strava.com/dashboard" target="_blank" rel="noopener">Abrir Strava</a>
-      <p class="muted">Si una sesión de Strava coincide con una registrada desde Mi Fitness, se mantiene la de Mi Fitness (más precisa).</p>
     </div>`;
   repoApi('actions/workflows/strava-sync.yml/runs?per_page=1').then(async res => {
     if (!res.ok) return;
     const run = (await res.json()).workflow_runs?.[0]; if (!run) return;
     const min = Math.round((Date.now() - new Date(run.updated_at)) / 60000);
-    $('#st-run').textContent = `Última sincronización: hace ${min < 60 ? min + ' min' : Math.round(min / 60) + ' h'} · ${run.conclusion === 'success' ? 'correcta' : run.conclusion || 'en curso'}`;
+    $('#st-run').textContent = run.conclusion && run.conclusion !== 'success' ? 'error' : min < 60 ? `${min} min` : `${Math.round(min / 60)} h`;
   }).catch(() => {});
   $('#st-sync').addEventListener('click', async () => {
     const res = await repoApi('actions/workflows/strava-sync.yml/dispatches', { method: 'POST', body: JSON.stringify({ ref: 'main' }) }).catch(() => null);
@@ -424,13 +489,14 @@ async function repoApi(path, opts = {}) {
 
 // ---------- Análisis del entrenador (Gemini) ----------
 const enCurso = new Set();
+const fallidos = new Map();   // ref → motivo (no se reintenta solo hasta que lo pidas)
 async function analizarAuto(e) {
   const ref = refDe(e);
   if (enCurso.has(ref)) return;
   enCurso.add(ref);
-  try { await analizarSesion(e); if (seccion === 'run') render(); }
-  catch (err) { toast(err.message); }
-  finally { enCurso.delete(ref); }
+  try { await analizarSesion(e); }
+  catch (err) { fallidos.set(ref, err.message); }
+  finally { enCurso.delete(ref); if (seccion === 'run' && runTab === 'resumen') renderRun(ahora().fecha); }
 }
 function promptCoach(e) {
   const p = perfil(), { fecha } = ahora();
@@ -545,7 +611,7 @@ function renderAjustes() {
         <li>Abre <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> con tu cuenta de Google.</li>
         <li>Pulsa <b>Create API key</b> (no pide tarjeta), cópiala y pégala arriba.</li>
       </ol>
-      <p class="muted">Plan gratuito: Google puede usar las fotos para mejorar sus productos.${cfg.gModel ? ` Modelo: ${esc(cfg.gModel.replace('models/', ''))}.` : ''}</p>
+      <p class="muted">Plan gratuito: Google puede usar las fotos para mejorar sus productos.${cfg.gModels?.length ? ` Modelo: ${esc(cfg.gModels[0].replace('models/', ''))}.` : ''}</p>
     </div>
     <button class="btn primary" id="c-save">Guardar y conectar</button>
     <div class="card stack">
@@ -563,7 +629,7 @@ function renderAjustes() {
     </div>`;
   $('#c-save').addEventListener('click', () => {
     const gem = $('#c-gem').value.trim();
-    if (gem !== cfg.gemini) cfg.gModel = '';
+    if (gem !== cfg.gemini) cfg.gModels = [];
     Object.assign(cfg, { owner: $('#c-owner').value.trim(), repo: $('#c-repo').value.trim(), token: $('#c-token').value.trim(), gemini: gem });
     saveCfg(); toast('Conectando…'); cargar().then(() => { if (Object.keys(D).length) { toast('Conectado ✓'); irA('nutri'); } });
   });
@@ -680,17 +746,18 @@ async function fotoBase64(file) {
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', 0.82);
 }
-async function modeloGemini() {
-  if (cfg.gModel) return cfg.gModel;
+// Modelos Flash disponibles para la clave, del más nuevo al más ligero (respaldo si uno está saturado).
+async function modelosGemini() {
+  if (cfg.gModels?.length && Date.now() - (cfg.gModelsT || 0) < 7 * 864e5) return cfg.gModels;
   const r = await fetch(`${GEMINI}/models?pageSize=200&key=${encodeURIComponent(cfg.gemini)}`);
   if (!r.ok) throw new Error('Clave de Gemini no válida (Ajustes)');
-  const ms = ((await r.json()).models || []).filter(m => m.supportedGenerationMethods?.includes('generateContent') &&
-    /gemini-[\d.]+-flash$/.test(m.name.replace('models/', '')));
+  const ms = ((await r.json()).models || []).map(m => m.name).filter(n => /gemini-[\d.]+-flash(-lite)?$/.test(n.replace('models/', '')));
   const ver = n => parseFloat((n.match(/gemini-([\d.]+)/) || [])[1] || 0);
-  ms.sort((a, b) => ver(b.name) - ver(a.name));
+  ms.sort((a, b) => (a.includes('lite') - b.includes('lite')) || ver(b) - ver(a));
   if (!ms.length) throw new Error('No encuentro un modelo Gemini Flash disponible');
-  cfg.gModel = ms[0].name; saveCfg(); return cfg.gModel;
+  cfg.gModels = ms.slice(0, 4); cfg.gModelsT = Date.now(); saveCfg(); return cfg.gModels;
 }
+const dormir = ms => new Promise(r => setTimeout(r, ms));
 function promptNutri(texto) {
   const base = csv('alimentos').rows.map(a => a.alimento).join(', ');
   return `Eres un nutricionista deportivo. Analiza ${texto ? 'la descripción' : 'la foto'} de una comida y desglosa cada ingrediente.
@@ -710,21 +777,30 @@ async function preguntarGemini(texto, dataUrl) {
 }
 async function geminiJSON(prompt, dataUrl) {
   if (!cfg.gemini) throw new Error('Añade tu clave gratuita de Gemini en Ajustes');
-  for (let intento = 0; intento < 2; intento++) {
-    const model = await modeloGemini();
-    const parts = [{ text: prompt }];
-    if (dataUrl) parts.push({ inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } });
-    const r = await fetch(`${GEMINI}/${model}:generateContent?key=${encodeURIComponent(cfg.gemini)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } }),
-    });
-    if (r.status === 404 && intento === 0) { cfg.gModel = ''; saveCfg(); continue; }
-    if (r.status === 429) throw new Error('Límite gratuito de Gemini alcanzado; prueba en un rato');
-    if (!r.ok) throw new Error(`Gemini respondió ${r.status}`);
-    const j = await r.json();
-    const txt = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').replace(/```json|```/g, '').trim();
-    try { return JSON.parse(txt); } catch { throw new Error('Respuesta de Gemini no válida; inténtalo de nuevo'); }
+  const parts = [{ text: prompt }];
+  if (dataUrl) parts.push({ inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } });
+  const body = JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } });
+  let ultimo = 0;
+  for (const model of await modelosGemini()) {
+    for (let intento = 0; intento < 2; intento++) {
+      let r;
+      try { r = await fetch(`${GEMINI}/${model}:generateContent?key=${encodeURIComponent(cfg.gemini)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }); }
+      catch { throw new Error('Sin conexión con Gemini'); }
+      if (r.ok) {
+        const j = await r.json();
+        const txt = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').replace(/```json|```/g, '').trim();
+        try { return JSON.parse(txt); } catch { ultimo = 'json'; break; }
+      }
+      ultimo = r.status;
+      if (r.status === 400 || r.status === 403) throw new Error('Clave de Gemini no válida (Ajustes)');
+      if (r.status === 404) { cfg.gModels = []; saveCfg(); break; }           // modelo retirado → siguiente
+      if ([429, 500, 503].includes(r.status)) { await dormir(1500 * (intento + 1)); continue; } // saturado → reintenta
+      break;
+    }
   }
+  throw new Error(ultimo === 429 ? 'Límite gratuito de Gemini alcanzado por hoy o por minuto; prueba en un rato'
+    : ultimo === 503 || ultimo === 500 ? 'Gemini está saturado ahora mismo; inténtalo en unos minutos'
+    : `No se pudo completar con Gemini (${ultimo})`);
 }
 function añadirResultado(out) {
   for (const it of out.items) {
@@ -973,5 +1049,6 @@ $('#btn-sync').addEventListener('click', cargar);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && cfg.token && $('#sheet').hidden) cargar(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
+gestos();
 irA(location.hash === '#run' ? 'run' : 'nutri');
 cargar().then(() => { if (location.hash === '#comida' && cfg.token) abrirSheet(); });

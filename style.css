@@ -365,3 +365,54 @@ textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px
 .strava-logo { width: 44px; height: 44px; border-radius: 12px; background: #fc4c02; color: #fff; display: grid; place-items: center; font-weight: 900; font-size: 22px; }
 .run-tile { background: linear-gradient(135deg, var(--r-acc2), var(--r-acc) 55%, var(--r-acc3)); box-shadow: 0 0 12px var(--r-glow); }
 .photo-pick .hero-tile.alt.run-alt { background: transparent; color: var(--r-acc); border-color: var(--r-acc); box-shadow: none; }
+
+/* ===== v1.4: pestañas-botón, noria y Strava ===== */
+.subtabs { background: none; border: 0; padding: 0; gap: 8px; }
+.subtabs button { flex-direction: column; gap: 4px; padding: 10px 4px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 13px; font-weight: 600; transition: transform .15s, background .25s; }
+.subtabs button:active { transform: scale(.95); }
+.subtabs button svg { width: 22px; height: 22px; }
+.subtabs button.on { background: linear-gradient(150deg, var(--r-acc2), var(--r-acc) 60%, var(--r-acc3)); color: #fff; border-color: transparent; box-shadow: 0 4px 14px var(--r-glow); }
+.subtabs button.strava svg { color: #fc4c02; }
+.subtabs button.strava.on { background: linear-gradient(150deg, #ff7a33, #fc4c02); box-shadow: 0 4px 14px rgba(252,76,2,.3); }
+.subtabs button.strava.on svg { color: #fff; }
+.strava-svg { fill: currentColor; stroke: none; }
+
+#run-body.slide-left { animation: inL .3s ease-out; }
+#run-body.slide-right { animation: inR .3s ease-out; }
+@keyframes inL { from { transform: translateX(48px); opacity: 0; } }
+@keyframes inR { from { transform: translateX(-48px); opacity: 0; } }
+
+/* Noria de sesiones */
+.rueda { position: relative; height: 292px; perspective: 900px; touch-action: pan-x; user-select: none; }
+.rueda .next {
+  position: absolute; inset: 0 0 auto 0; height: 210px; border-radius: 26px; padding: 22px 20px;
+  display: grid; justify-items: center; align-content: center; text-align: center; gap: 6px;
+  background: var(--card); border: 1px solid var(--line); color: var(--muted);
+  transition: transform .55s cubic-bezier(.2,.85,.25,1.1), opacity .45s, background .35s, color .35s;
+  transform-origin: 50% 100%; will-change: transform; cursor: pointer;
+}
+.rueda .next-detail { opacity: 0; transition: opacity .3s; }
+.rueda .next.pos0 { z-index: 3; transform: none; opacity: 1; background: linear-gradient(150deg, var(--r-acc2), var(--r-acc) 55%, var(--r-acc3)); color: #fff; border-color: transparent; box-shadow: 0 10px 28px var(--r-glow); cursor: default; }
+.rueda .next.pos0 .next-detail { opacity: .95; }
+.rueda .next.pos1 { z-index: 2; transform: translateY(58px) scale(.9) rotateX(-22deg); opacity: .95; align-content: end; padding-bottom: 12px; }
+.rueda .next.pos2 { z-index: 1; transform: translateY(96px) scale(.8) rotateX(-38deg); opacity: .45; align-content: end; padding-bottom: 10px; }
+.rueda .next.hide { z-index: 0; transform: translateY(120px) scale(.7) rotateX(-55deg); opacity: 0; pointer-events: none; }
+.rueda .next.gone { z-index: 4; transform: translateY(-110px) scale(.85) rotateX(60deg); opacity: 0; pointer-events: none; }
+.rueda .next:not(.pos0) .next-what { font-size: 16px; color: var(--text); }
+.rueda .next:not(.pos0) .next-when { font-size: 11px; }
+.rueda.tope .next.pos0 { animation: tope .3s; }
+@keyframes tope { 40% { transform: translateY(-8px); } }
+.rueda-dots { position: absolute; right: -10px; top: 0; height: 210px; display: grid; align-content: center; gap: 6px; z-index: 5; }
+.rueda-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--line); transition: height .3s, background .3s; }
+.rueda-dots i.on { height: 18px; background: var(--r-acc); }
+.rueda-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: -6px; }
+
+/* Strava */
+.strava-logo { width: 48px; height: 48px; border-radius: 14px; background: #fc4c02; color: #fff; display: grid; place-items: center; flex: none; }
+.strava-logo svg { width: 28px; height: 28px; }
+.strava-last { display: grid; gap: 4px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, #fc4c02 10%, transparent); }
+.strava-last b { font-size: 18px; }
+.strava-last .tag { justify-self: start; background: #fc4c02; color: #fff; }
+.strava-btn { background: #fc4c02; color: #fff; display: flex; justify-content: center; align-items: center; gap: 8px; }
+.strava-btn svg { width: 18px; height: 18px; }
+.aviso { font-size: 13px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, #eab308 14%, transparent); }
