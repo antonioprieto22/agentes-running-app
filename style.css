@@ -495,3 +495,37 @@ textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px
 .mini-date { display: grid; text-align: center; line-height: 1.1; min-width: 40px; border-radius: 10px; padding: 4px 0; background: var(--soft); }
 .mini-date small { font-size: 10px; text-transform: uppercase; color: var(--muted); }
 .tag.st { background: #fc4c02; color: #fff; }
+
+/* ===== v1.6: colores intercambiados (Running = naranja Strava, Nutrición = azul) + rueda centrada ===== */
+:root {
+  --n-acc: #2f7bff; --n-acc2: #22b8ff; --n-acc3: #4f46e5; --n-soft: #e8f0ff; --n-ink: #1e3a8a; --n-glow: rgba(47, 123, 255, .16);
+  --r-acc: #fc4c02; --r-acc2: #ff8a3d; --r-acc3: #d93a00; --r-soft: #fff1e6; --r-ink: #9a3412; --r-glow: rgba(252, 76, 2, .16);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --n-soft: #00102a; --n-ink: #9cc3ff; --n-glow: rgba(47, 123, 255, .22);
+    --r-soft: #1d0c00; --r-ink: #ffb27a; --r-glow: rgba(252, 76, 2, .22);
+  }
+  .ring2 .track { stroke: #001a3d; }
+}
+/* Rueda: sin el relleno por defecto del botón, centrada y sin hueco de línea bajo el SVG */
+.ring2 { padding: 0; display: grid; place-items: center; flex: none; }
+.ring2 svg { display: block; }
+.hero2.compact .ring-lbl small { font-size: 11px; }
+.hero2.compact .ring-hint { margin-top: 2px; }
+.ring2 .tip { stroke: #2f7bff; }
+.ring2 .tip-glow { fill: #2f7bff; }
+/* Fichas de foto de comida en azul */
+.hero-tile { background: linear-gradient(135deg, #22b8ff, #2f7bff 55%, #4f46e5); box-shadow: 0 0 12px var(--n-glow); }
+.photo-pick .hero-tile.alt { background: #050b18; color: #9cc3ff; border: 1px solid #2f7bff; box-shadow: 0 0 10px var(--n-glow); }
+@media (prefers-color-scheme: light) { .photo-pick .hero-tile.alt { background: #e8f0ff; color: #1e3a8a; } }
+.scan-line { background: #2f7bff; box-shadow: 0 0 16px 4px rgba(47,123,255,.6); }
+/* Fichas de foto de entreno en naranja Strava */
+.run-tile { background: linear-gradient(135deg, #ff8a3d, #fc4c02 55%, #d93a00); box-shadow: 0 0 12px var(--r-glow); }
+.photo-pick .hero-tile.alt.run-alt { background: transparent; color: #fc4c02; border-color: #fc4c02; }
+/* Logro del día en tonos naranja */
+.logro { background: radial-gradient(120% 90% at 50% 0%, #ffa15c 0%, #fc4c02 50%, #4a1500 100%); }
+.logro.t-series { background: radial-gradient(120% 90% at 50% 0%, #ff7a59 0%, #e11d48 50%, #4c0519 100%); }
+.logro.t-tirada { background: radial-gradient(120% 90% at 50% 0%, #fcd34d 0%, #f59e0b 50%, #451a03 100%); }
+/* Pestaña Strava activa: mismo naranja, se distingue por el logo */
+.subtabs button.strava svg { color: #fc4c02; }

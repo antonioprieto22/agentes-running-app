@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -217,7 +217,7 @@ function renderNutri(hoy) {
         <svg viewBox="0 0 220 220">
           <defs>
             <linearGradient id="gArc" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#ffb02e"/><stop offset=".55" stop-color="#ff6a00"/><stop offset="1" stop-color="#e11d48"/>
+              <stop offset="0" stop-color="#22d3ee"/><stop offset=".55" stop-color="#2f7bff"/><stop offset="1" stop-color="#6d28d9"/>
             </linearGradient>
             <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
           </defs>
