@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.0.0';
+const VERSION = '2.0.1';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -383,10 +383,12 @@ let ruedaIdx = 0, ruedaN = 0;
 function renderRun(hoy, dir) {
   const r = runInfo(hoy), plan = planRows();
   const hechos = new Set(r.all.map(e => e.fecha));
-  $('#v-run').innerHTML = `
+  // La semana va arriba del todo (misma altura que en Fuerza), encima de los tres botones.
+  $('#v-run').innerHTML = `${semanaHTML(hoy)}
     <div class="subtabs">${RUN_TABS.map(([k, l, ic]) => `<button data-rt="${k}" class="${runTab === k ? 'on' : ''} ${k}">${ic}<span>${l}</span></button>`).join('')}</div>
     <div id="run-body" class="${dir ? 'slide-' + dir : ''}"></div>`;
   $$('[data-rt]').forEach(b => b.addEventListener('click', () => irRunTab(b.dataset.rt)));
+  bindSemana(hoy);
   const body = $('#run-body');
 
   if (runTab === 'sesiones') {
@@ -427,7 +429,7 @@ function renderRun(hoy, dir) {
   // Con el logro del día hecho, la noria se esconde tras un botón negro.
   const ocultarRueda = hoyE && ruedaN && !verProx;
   const sig = pend[0], dSig = sig && new Date(sig.fecha + 'T12:00:00Z');
-  body.innerHTML = `${semanaHTML(hoy)}${chip}
+  body.innerHTML = `${chip}
     ${ocultarRueda ? `<button class="btn-negro" id="btn-prox">
         <span class="bn-sym">${SIMBOLO[tipoSesion(`${sig.sesion} ${sig.detalle}`)]}</span>
         <span class="grow"><b>Próximas sesiones</b><small>${sig.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[dSig.getUTCDay()]} · ${esc(sig.sesion)}</small></span>
@@ -445,7 +447,6 @@ function renderRun(hoy, dir) {
         <b>${s.km}</b><span>${s.now ? 'hoy' : new Date(s.lunes + 'T12:00:00Z').getUTCDate() + ' ' + MESES[new Date(s.lunes + 'T12:00:00Z').getUTCMonth()]}</span></div>`).join('')}</div>
     </div>`;
 
-  bindSemana(hoy);
   colocarRueda();
   $$('#rueda .next').forEach(c => c.addEventListener('click', () => {
     const i = +c.dataset.i;
