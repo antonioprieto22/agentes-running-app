@@ -298,3 +298,70 @@ textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px
 .photo-pick .hero-tile.alt { background: #111; color: #ffb27a; border: 1px solid #ff6a00; box-shadow: 0 0 14px var(--n-glow); }
 @media (prefers-color-scheme: light) { .photo-pick .hero-tile.alt { background: #fff1e6; color: #9a3412; } }
 .photo-title { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 2px 0 8px; }
+
+/* ===== v1.3: menos destello + running ===== */
+:root { --n-glow: rgba(255, 106, 0, .16); --r-glow: rgba(47, 123, 255, .16); }
+@media (prefers-color-scheme: dark) { :root { --n-glow: rgba(255, 106, 0, .22); --r-glow: rgba(47, 123, 255, .22); } }
+.tabs button.on, .meal-kcal, .plato-head span, .count, .back { text-shadow: none; }
+.tabs button.on svg { filter: none; }
+.fab, .btn.primary, .pill.action, .chip.on { box-shadow: 0 0 10px var(--glow); }
+.top { box-shadow: 0 4px 16px var(--glow); }
+.hero-tile { box-shadow: 0 0 12px var(--n-glow); }
+.plato { box-shadow: 0 0 8px var(--glow); }
+.ring2 .tip-glow { opacity: .4; }
+
+.goal { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 99px; background: rgba(0,0,0,.22); color: #fff; }
+.cap { text-transform: capitalize; }
+.subtabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.subtabs button { padding: 9px 4px; border-radius: 10px; font-size: 14px; color: var(--muted); display: flex; gap: 6px; justify-content: center; align-items: center; }
+.subtabs button.on { background: var(--soft); color: var(--acc); font-weight: 700; }
+#run-body { display: grid; gap: 12px; }
+.st-dot { width: 8px; height: 8px; border-radius: 50%; background: #fc4c02; display: inline-block; }
+.st-dot.big { width: 12px; height: 12px; background: var(--muted); margin-left: auto; }
+.st-dot.big.on { background: var(--good); box-shadow: 0 0 8px var(--good); }
+
+/* Próxima sesión: tarjeta grande con la siguiente detrás */
+.stack-next { position: relative; display: grid; padding-bottom: 34px; margin-top: 4px; }
+.next { grid-area: 1 / 1; border-radius: 26px; padding: 26px 20px; display: grid; justify-items: center; text-align: center; gap: 6px; }
+.next.front { position: relative; z-index: 2; background: linear-gradient(150deg, var(--r-acc2), var(--r-acc) 55%, var(--r-acc3)); color: #fff; box-shadow: 0 8px 24px var(--r-glow); min-height: 190px; align-content: center; }
+.next.back { z-index: 1; align-self: end; transform: translateY(34px) scale(.9); background: var(--card); border: 1px solid var(--line); color: var(--muted); padding: 10px 20px 12px; align-content: end; min-height: 80px; }
+.next-when { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; opacity: .85; }
+.next-what { font-size: 30px; font-weight: 800; letter-spacing: -.02em; text-transform: capitalize; line-height: 1.1; }
+.next.back .next-what { font-size: 15px; font-weight: 600; color: var(--text); }
+.next.back .next-when { font-size: 11px; }
+.next-detail { font-size: 14px; opacity: .92; max-width: 30ch; }
+
+/* Volumen visual */
+.vol { display: grid; gap: 10px; }
+.vol-head { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+.vol-head .pill { text-transform: none; letter-spacing: 0; font-size: 12px; padding: 4px 10px; }
+.vol-num b { font-size: 44px; font-weight: 800; letter-spacing: -.03em; color: var(--acc); }
+.vol-num span { color: var(--muted); margin-left: 6px; }
+.vol-track { position: relative; height: 12px; border-radius: 6px; background: var(--soft); margin: 4px 10px 8px 0; }
+.vol-track i { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: linear-gradient(90deg, var(--acc2), var(--acc)); }
+.vol-track .runner { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 30px; height: 30px; border-radius: 50%; background: var(--acc); color: #fff; display: grid; place-items: center; }
+.vol-track .runner svg { width: 18px; height: 18px; }
+.weeks2 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: end; margin-top: 8px; }
+.wk2 { display: grid; justify-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+.wk2 b { color: var(--text); font-size: 13px; }
+.col2 { position: relative; width: 100%; max-width: 40px; height: 90px; border-radius: 10px; background: var(--soft); display: flex; align-items: flex-end; overflow: hidden; }
+.col2 i { width: 100%; border-radius: 10px; background: linear-gradient(var(--acc2), var(--acc)); opacity: .55; }
+.wk2.now .col2 i { opacity: 1; }
+.col2 em { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--acc); }
+
+/* Análisis */
+.analysis-chip { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); text-align: left; font-weight: 600; }
+.analysis-chip.ok { border-color: color-mix(in srgb, var(--good) 50%, transparent); }
+.analysis-chip.bad, .analysis-chip.mid { border-color: color-mix(in srgb, #eab308 60%, transparent); }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--acc); display: inline-block; animation: spin .8s linear infinite; flex: none; vertical-align: middle; }
+.an { border-radius: 16px; padding: 14px; margin: 12px 0; background: var(--soft); display: grid; gap: 6px; }
+.an b { font-size: 16px; }
+.an p { font-size: 14px; }
+.plan-prop .item { align-items: flex-start; }
+.as-btn { width: 100%; text-align: left; }
+.strava { display: grid; gap: 12px; }
+.strava-head { display: flex; align-items: center; gap: 12px; }
+.strava-head b { display: block; }
+.strava-logo { width: 44px; height: 44px; border-radius: 12px; background: #fc4c02; color: #fff; display: grid; place-items: center; font-weight: 900; font-size: 22px; }
+.run-tile { background: linear-gradient(135deg, var(--r-acc2), var(--r-acc) 55%, var(--r-acc3)); box-shadow: 0 0 12px var(--r-glow); }
+.photo-pick .hero-tile.alt.run-alt { background: transparent; color: var(--r-acc); border-color: var(--r-acc); box-shadow: none; }

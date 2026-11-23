@@ -2,12 +2,12 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
   comidas: 'nutricion/comidas.csv', alimentos: 'nutricion/alimentos.csv', actividad: 'nutricion/actividad.csv',
-  entrenos: 'running/entrenos.csv', peso: 'peso.csv',
+  entrenos: 'running/entrenos.csv', peso: 'peso.csv', analisis: 'running/analisis.md',
 };
 const CLAUDE_URL = 'https://claude.ai/code';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
@@ -168,6 +168,14 @@ function runInfo(hoy) {
 function render() {
   const { fecha } = ahora();
   $('#fecha').textContent = fechaLarga(fecha);
+  const g = $('#goal'), p = perfil();
+  g.hidden = seccion !== 'run' || !p.objetivo_carrera;
+  if (!g.hidden) {
+    const lugar = (p.objetivo_carrera.match(/ de ([^~(]+?) en/) || [])[1] || p.objetivo_carrera;
+    const marca = (p.objetivo_carrera.match(/~\s*([\dh:']+)/) || [])[1];
+    const dias = /^\d{4}/.test(p.fecha_objetivo || '') ? diasEntre(fecha, p.fecha_objetivo) : null;
+    g.textContent = `🏁 ${lugar}${marca ? ' · ' + marca : ''}${dias != null ? ' · ' + dias + ' días' : ''}`;
+  }
   if (seccion === 'nutri') renderNutri(fecha);
   if (seccion === 'run') renderRun(fecha);
   if (seccion === 'ajustes') renderAjustes();
@@ -283,51 +291,243 @@ function animarAnillo(total, ref) {
   requestAnimationFrame(frame);
 }
 
-function renderRun(hoy) {
-  const r = runInfo(hoy), plan = planRows(), n = nutriDia(hoy), p = perfil();
-  const maxKm = Math.max(5, ...r.semanas.map(s => s.km));
-  const objetivo = p.fecha_objetivo && /^\d{4}/.test(p.fecha_objetivo) ? diasEntre(hoy, p.fecha_objetivo) : null;
-  const hechos = new Set(r.all.map(e => e.fecha));
-  const prox = plan.filter(x => x.fecha >= hoy && !/^(descanso|fuerza)/.test(norm(x.sesion))).slice(0, 5);
-  const semActual = r.semanas.at(-1), semPrev = r.semanas.at(-2);
-  const delta = semPrev.km ? Math.round((semActual.km / semPrev.km - 1) * 100) : null;
-  const bal = n.gasto != null ? Math.round(n.t.kcal - n.gasto) : null;
+// ---------- Running ----------
+let runTab = 'resumen';
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const DIAS_LARGOS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const esSesion = x => !/^(descanso|fuerza)/.test(norm(x.sesion));
 
+// km estimados de una sesión del plan (≈7,3 min/km en Z2).
+function kmPlan(x) {
+  const d = norm(`${x.sesion} ${x.detalle}`);
+  const km = d.match(/(\d+(?:[.,]\d+)?)\s*km/);
+  if (km) return num(km[1]);
+  let reps = 0;
+  for (const m of d.matchAll(/(\d+)\s*[x×]\s*(\d+)\s*m\b/g)) reps += (+m[1] * +m[2]) / 1000;
+  const mins = [...d.matchAll(/(\d+):00/g)].map(m => +m[1]);
+  if (reps) return r1(reps + mins.reduce((a, b) => a + b, 0) / 7);
+  return mins.length ? r1(mins[0] / 7.3) : 0;
+}
+
+// Análisis guardados en running/analisis.md
+const refDe = e => e.strava_id || `${e.fecha}|${e.distancia_km}`;
+function analisisDe(e) {
+  const txt = D.analisis?.text || '';
+  const i = txt.indexOf(`<!-- ref:${refDe(e)} -->`);
+  if (i < 0) return null;
+  const fin = txt.indexOf('\n## ', i);
+  return txt.slice(txt.lastIndexOf('## ', i), fin < 0 ? undefined : fin).trim();
+}
+
+function renderRun(hoy) {
+  const r = runInfo(hoy), plan = planRows();
+  const hechos = new Set(r.all.map(e => e.fecha));
   $('#v-run').innerHTML = `
-    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
-      <div><h3 style="margin:0 0 4px">Objetivo</h3><b>${esc(p.objetivo_carrera || '—')}</b></div>
-      ${objetivo != null ? `<div style="text-align:right"><div class="count">${objetivo}</div><span class="muted">días</span></div>` : ''}
-    </div>
-    <div class="card"><h3>Próximas sesiones</h3>
-      ${prox.map(x => {
-        const d = new Date(x.fecha + 'T12:00:00Z');
-        return `<div class="session ${x.fecha === hoy ? 'today' : ''}">
-          <div class="date"><small>${DIAS[d.getUTCDay()]}</small><b>${d.getUTCDate()}</b></div>
-          <div><b>${esc(x.sesion)}</b><div class="muted">${esc(x.detalle)}</div></div>
-          ${hechos.has(x.fecha) ? '<span class="done">✓</span>' : ''}</div>`;
-      }).join('') || '<div class="empty">Sin sesiones en el plan. Pídeselo al agente.</div>'}
-    </div>
-    <div class="card"><h3>Volumen semanal <span>${semActual.km} km · anterior ${semPrev.km}</span></h3>
-      <div class="weeks">${r.semanas.map(s => `<div class="wk ${s.now ? 'now' : ''}"><b>${s.km}</b>
-        <div class="col" style="height:100%"><i style="height:${(s.km / maxKm) * 100}%"></i></div>
-        <span>${s.now ? 'esta' : new Date(s.lunes + 'T12:00:00Z').getUTCDate() + '/' + (new Date(s.lunes + 'T12:00:00Z').getUTCMonth() + 1)}</span></div>`).join('')}</div>
-      <p class="muted" style="margin-top:10px">ACWR ${r.acwr ?? '—'}${r.fiable ? (r.acwr > 1.5 ? ' · sobrecarga' : r.acwr > 1.3 ? ' · vigila' : ' · ok') : ' · poco historial, orientativo'} · regla del 10 %: ${delta != null && delta > 10 ? 'subida por encima' : 'ok'}</p>
-    </div>
-    <button class="bridge to-nutri card" data-goto="nutri">
-      <span class="dot">${ICON_FORK}</span>
-      <span><b>Energía de hoy: ${fmt(n.t.kcal)} kcal ingeridas</b>
-      <span class="muted">${bal != null ? `Balance ${bal > 0 ? '+' : ''}${fmt(bal)} kcal · ` : ''}Proteína ${Math.round(n.t.P)}/${n.protRef} g${bal != null && bal < -1000 ? ' · déficit alto para recuperar bien' : ''}</span></span>
-    </button>
-    <div class="card"><h3>Últimas sesiones</h3>
-      ${r.all.slice(-6).reverse().map(e => {
-        const d = new Date(e.fecha + 'T12:00:00Z');
-        return `<div class="session"><div class="date"><small>${DIAS[d.getUTCDay()]}</small><b>${d.getUTCDate()}</b></div>
-          <div><b style="text-transform:capitalize">${esc(e.tipo)} · ${esc(e.distancia_km)} km</b>
+    <div class="subtabs">${[['resumen', 'Resumen'], ['sesiones', 'Sesiones'], ['strava', 'Strava']]
+      .map(([k, l]) => `<button data-rt="${k}" class="${runTab === k ? 'on' : ''}">${k === 'strava' ? '<i class="st-dot"></i>' : ''}${l}</button>`).join('')}</div>
+    <div id="run-body"></div>`;
+  $$('[data-rt]').forEach(b => b.addEventListener('click', () => { runTab = b.dataset.rt; renderRun(hoy); }));
+  const body = $('#run-body');
+
+  if (runTab === 'sesiones') {
+    body.innerHTML = `<div class="card">${r.all.slice().reverse().map((e, i) => {
+      const d = new Date(e.fecha + 'T12:00:00Z'), a = analisisDe(e);
+      return `<button class="session as-btn" data-ses="${r.all.length - 1 - i}">
+        <div class="date"><small>${DIAS[d.getUTCDay()]}</small><b>${d.getUTCDate()}</b></div>
+        <div><b class="cap">${esc(e.tipo)} · ${esc(e.distancia_km)} km</b>
           <div class="muted">${esc(e.ritmo_min_km)}/km · ${esc(e.duracion_min)} min${e.fc_media ? ' · ' + esc(e.fc_media) + ' ppm' : ''}</div></div>
-          <span class="tag">${e.rpe ? 'RPE ' + esc(e.rpe) : 'sin RPE'}</span></div>`;
-      }).join('') || '<div class="empty">Sin sesiones.</div>'}
+        <span class="tag">${a ? valIcon(a) : e.rpe ? 'RPE ' + esc(e.rpe) : '—'}</span></button>`;
+    }).join('') || '<div class="empty">Sin sesiones.</div>'}</div>`;
+    $$('[data-ses]').forEach(b => b.addEventListener('click', () => verSesion(r.all[+b.dataset.ses])));
+    return;
+  }
+
+  if (runTab === 'strava') { renderStrava(body, r); return; }
+
+  // Resumen: próxima sesión en grande + la siguiente asomando detrás
+  const pend = plan.filter(x => esSesion(x) && (x.fecha > hoy || (x.fecha === hoy && !hechos.has(hoy))));
+  const [s1, s2] = pend;
+  const lun = lunes(hoy), dom = addDays(lun, 6);
+  const semPlan = r1(plan.filter(x => x.fecha >= lun && x.fecha <= dom && esSesion(x)).reduce((s, x) => s + kmPlan(x), 0));
+  const semAct = r.semanas.at(-1), maxKm = Math.max(5, semPlan, ...r.semanas.map(s => s.km));
+  const pct = semPlan ? Math.min(1, semAct.km / semPlan) : 0;
+  const ultima = r.all.filter(e => e.fecha >= addDays(hoy, -3)).at(-1);
+  const aUlt = ultima && analisisDe(ultima);
+
+  const cardSesion = (x, cls) => {
+    if (!x) return '';
+    const d = new Date(x.fecha + 'T12:00:00Z');
+    const cuando = x.fecha === hoy ? 'Hoy' : x.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[d.getUTCDay()];
+    return `<div class="next ${cls}">
+      <span class="next-when">${cuando} · ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span>
+      <b class="next-what">${esc(x.sesion)}</b>
+      ${cls === 'front' ? `<span class="next-detail">${esc(x.detalle)}</span>` : ''}
+    </div>`;
+  };
+
+  body.innerHTML = `
+    ${ultima ? `<button class="analysis-chip ${aUlt ? valClase(aUlt) : 'pending'}" id="chip-an">
+      ${aUlt ? `${valIcon(aUlt)} <span>${esc(tituloAn(aUlt))}</span>` : `<i class="spinner"></i><span>${cfg.gemini ? 'Analizando tu ' + esc(ultima.tipo) + ' del ' + new Date(ultima.fecha + 'T12:00:00Z').getUTCDate() + '…' : 'Añade la clave de Gemini para analizar tus entrenos'}</span>`}
+    </button>` : ''}
+    <div class="stack-next">${cardSesion(s2, 'back')}${cardSesion(s1, 'front') || '<div class="next front"><b class="next-what">Sin sesiones pendientes</b><span class="next-detail">Pide un plan nuevo al agente</span></div>'}</div>
+    <div class="card vol">
+      <div class="vol-head"><span>Esta semana</span><span class="pill soft">ACWR ${r.acwr ?? '—'}${r.fiable ? '' : '*'}</span></div>
+      <div class="vol-num"><b>${semAct.km}</b><span>/ ${semPlan || '—'} km</span></div>
+      <div class="vol-track"><i style="width:${pct * 100}%"></i><span class="runner" style="left:${pct * 100}%">${ICON_RUN}</span></div>
+      <div class="weeks2">${r.semanas.map(s => `<div class="wk2 ${s.now ? 'now' : ''}">
+        <div class="col2"><i style="height:${(s.km / maxKm) * 100}%"></i>${s.now && semPlan ? `<em style="bottom:${(semPlan / maxKm) * 100}%"></em>` : ''}</div>
+        <b>${s.km}</b><span>${s.now ? 'hoy' : new Date(s.lunes + 'T12:00:00Z').getUTCDate() + ' ' + MESES[new Date(s.lunes + 'T12:00:00Z').getUTCMonth()]}</span></div>`).join('')}</div>
+    </div>`;
+
+  $('#chip-an')?.addEventListener('click', () => (aUlt ? verSesion(ultima) : cfg.gemini ? null : irA('ajustes')));
+  if (ultima && !aUlt && cfg.gemini) analizarAuto(ultima);
+}
+
+const valClase = a => (/Valoración:\*\* bien/.test(a) ? 'ok' : /Valoración:\*\* regular/.test(a) ? 'mid' : 'bad');
+const valIcon = a => ({ ok: '✅', mid: '🟡', bad: '🔧' }[valClase(a)]);
+const tituloAn = a => (a.match(/\*\*Valoración:\*\* \w+ — (.+)/) || [])[1] || 'Ver análisis';
+
+function renderStrava(body, r) {
+  const sv = r.all.filter(e => e.fuente === 'strava'), ult = sv.at(-1);
+  body.innerHTML = `
+    <div class="card strava">
+      <div class="strava-head"><span class="strava-logo">S</span>
+        <div><b>${sv.length ? 'Conectado' : 'Sin actividades aún'}</b><span class="muted">Sincroniza solo cada 3 h</span></div>
+        <i class="st-dot big ${sv.length ? 'on' : ''}"></i></div>
+      <div class="stat-row">
+        <div><span>Importadas</span><b>${sv.length}</b></div>
+        <div><span>Última</span><b>${ult ? new Date(ult.fecha + 'T12:00:00Z').getUTCDate() + ' ' + MESES[new Date(ult.fecha + 'T12:00:00Z').getUTCMonth()] : '—'}</b></div>
+        <div><span>Distancia</span><b>${ult ? esc(ult.distancia_km) + ' km' : '—'}</b></div>
+      </div>
+      <p class="muted" id="st-run"></p>
+      <button class="btn primary" id="st-sync">Sincronizar ahora</button>
+      <a class="btn ghost" href="https://www.strava.com/dashboard" target="_blank" rel="noopener">Abrir Strava</a>
+      <p class="muted">Si una sesión de Strava coincide con una registrada desde Mi Fitness, se mantiene la de Mi Fitness (más precisa).</p>
+    </div>`;
+  repoApi('actions/workflows/strava-sync.yml/runs?per_page=1').then(async res => {
+    if (!res.ok) return;
+    const run = (await res.json()).workflow_runs?.[0]; if (!run) return;
+    const min = Math.round((Date.now() - new Date(run.updated_at)) / 60000);
+    $('#st-run').textContent = `Última sincronización: hace ${min < 60 ? min + ' min' : Math.round(min / 60) + ' h'} · ${run.conclusion === 'success' ? 'correcta' : run.conclusion || 'en curso'}`;
+  }).catch(() => {});
+  $('#st-sync').addEventListener('click', async () => {
+    const res = await repoApi('actions/workflows/strava-sync.yml/dispatches', { method: 'POST', body: JSON.stringify({ ref: 'main' }) }).catch(() => null);
+    if (res?.status === 204) { toast('Sincronizando con Strava… (≈1 min)'); setTimeout(cargar, 75000); }
+    else toast('Para sincronizar desde aquí, añade a tu clave de GitHub el permiso "Actions: Read and write"');
+  });
+}
+async function repoApi(path, opts = {}) {
+  return fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/${path}`, {
+    ...opts, cache: 'no-store', headers: { Authorization: `Bearer ${cfg.token}`, Accept: 'application/vnd.github+json' },
+  });
+}
+
+// ---------- Análisis del entrenador (Gemini) ----------
+const enCurso = new Set();
+async function analizarAuto(e) {
+  const ref = refDe(e);
+  if (enCurso.has(ref)) return;
+  enCurso.add(ref);
+  try { await analizarSesion(e); if (seccion === 'run') render(); }
+  catch (err) { toast(err.message); }
+  finally { enCurso.delete(ref); }
+}
+function promptCoach(e) {
+  const p = perfil(), { fecha } = ahora();
+  const planTxt = planRows().filter(x => x.fecha >= addDays(fecha, -7)).map(x => `${x.fecha} ${x.dia}: ${x.sesion} — ${x.detalle}`).join('\n');
+  const hist = csv('entrenos').rows.filter(x => x.fecha >= addDays(fecha, -35)).map(x =>
+    `${x.fecha} ${x.tipo} ${x.distancia_km}km ${x.duracion_min}min ${x.ritmo_min_km}/km FC${x.fc_media || '?'} RPE${x.rpe || '?'} ${x.notas} (${x.fuente})`).join('\n');
+  const planHoy = planRows().find(x => x.fecha === e.fecha);
+  return `Eres mi entrenador de running (media distancia, prevención de lesiones). Hoy es ${fecha}.
+Atleta: ${p.peso_kg} kg, ${p.edad} años. Objetivo: ${p.objetivo_carrera} el ${p.fecha_objetivo}. Días: ${p.dias_entreno}. Molestias: ${p.molestias}.
+Zonas: rodajes Z2 con alerta de FC en 148–152 ppm. Mi Fitness es más fiable que Strava (Strava infla la distancia ~2–4 %).
+Reglas: progresión prudente (≤10 % de volumen semanal), descarga cada 3–4 semanas, ACWR >1,3 = vigilar. Si hay dolor o molestia: no progresar y recomendar consultar a un profesional. Sin consejos médicos.
+
+SESIÓN A ANALIZAR: ${e.fecha} ${e.tipo} ${e.distancia_km} km en ${e.duracion_min} min (${e.ritmo_min_km}/km), FC media ${e.fc_media || '?'}, desnivel ${e.desnivel_m || '?'}, RPE ${e.rpe || '?'}, notas: "${e.notas}", fuente ${e.fuente}.
+Sesión planificada ese día: ${planHoy ? `${planHoy.sesion} — ${planHoy.detalle}` : 'ninguna'}.
+
+Historial 5 semanas:
+${hist}
+
+Plan actual:
+${planTxt}
+
+Analiza si la sesión se hizo bien respecto a lo planificado (ritmo, FC/zona, volumen, sensaciones) y qué mejorar.
+Después decide si hay que ajustar el plan de las próximas semanas. Solo propón cambios si los datos lo justifican; si no, "necesario": false.
+Si ajustas: solo fechas posteriores a ${fecha}, máximo 3 semanas, mantén los días de entrenamiento y el estilo del detalle (listo para programar en el reloj, con la alerta de FC).
+Responde SOLO JSON:
+{"valoracion":"bien|regular|mejorable","titulo":"frase corta (máx 8 palabras)","positivo":["máx 3, frases cortas"],"mejorar":["máx 3, frases cortas"],
+"ajuste":{"necesario":false,"motivo":"una frase","sesiones":[{"fecha":"AAAA-MM-DD","dia":"mar","sesion":"rodaje Z2","detalle":"..."}]}}`;
+}
+async function analizarSesion(e) {
+  const out = await geminiJSON(promptCoach(e));
+  const v = ['bien', 'regular', 'mejorable'].includes(out.valoracion) ? out.valoracion : 'regular';
+  const { fecha } = ahora();
+  const ses = (out.ajuste?.necesario && Array.isArray(out.ajuste.sesiones) ? out.ajuste.sesiones : [])
+    .filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s.fecha) && s.fecha > fecha && s.sesion).slice(0, 21);
+  const bloque = [
+    `## ${e.fecha} · ${e.tipo} ${e.distancia_km} km <!-- ref:${refDe(e)} -->`,
+    `**Valoración:** ${v} — ${limpio(out.titulo || '')}`,
+    ...(out.positivo || []).slice(0, 3).map(x => `- ✅ ${limpio(x)}`),
+    ...(out.mejorar || []).slice(0, 3).map(x => `- 🔧 ${limpio(x)}`),
+    ses.length ? `**Ajuste propuesto:** ${limpio(out.ajuste.motivo || '')}` : '**Ajuste del plan:** no necesario',
+    ...ses.map(s => `<!-- plan:${s.fecha}|${limpio(s.dia)}|${limpio(s.sesion)}|${limpio(s.detalle)} -->`),
+  ].join('\n');
+  await modify('analisis', t => t.replace(/\n*$/, '\n\n') + bloque + '\n', `análisis ${e.fecha} ${e.tipo}`);
+  return bloque;
+}
+function propuestaDe(a) {
+  return [...a.matchAll(/<!-- plan:([^|]+)\|([^|]*)\|([^|]*)\|(.*?) -->/g)].map(m => ({ fecha: m[1], dia: m[2], sesion: m[3], detalle: m[4] }));
+}
+async function aplicarAjuste(e, a) {
+  const nuevas = propuestaDe(a), motivo = (a.match(/\*\*Ajuste propuesto:\*\* (.+)/) || [])[1] || '';
+  const { fecha } = ahora();
+  await modify('plan', t => {
+    const ls = t.split('\n');
+    const esFila = l => /^\|\s*\d{4}-\d{2}-\d{2}/.test(l);
+    const filas = new Map(ls.filter(esFila).map(l => [l.split('|')[1].trim(), l]));
+    nuevas.forEach(s => filas.set(s.fecha, `| ${s.fecha} | ${s.dia} | ${s.sesion} | ${s.detalle} |`));
+    const ordenadas = [...filas.keys()].sort().map(k => filas.get(k));
+    const resto = ls.filter(l => !esFila(l) && !/^Último ajuste/.test(l));
+    let iSep = resto.findIndex(l => /^\|\s*-{3}/.test(l));
+    if (iSep < 0) { resto.push('', '| fecha | día | sesión | detalle |', '|---|---|---|---|'); iSep = resto.length - 1; }
+    resto.splice(iSep + 1, 0, ...ordenadas);
+    const iTitulo = resto.findIndex(l => l.startsWith('# '));
+    resto.splice(iTitulo + 1, 0, `Último ajuste (${fecha}): ${motivo}`);
+    return resto.join('\n');
+  }, `ajuste del plan tras ${e.tipo} del ${e.fecha}`);
+  await modify('analisis', t => t.replace(`<!-- ref:${refDe(e)} -->`, `<!-- ref:${refDe(e)} --> ✔️ ajuste aplicado`), 'ajuste aplicado');
+}
+
+function verSesion(e) {
+  const a = analisisDe(e), prop = a ? propuestaDe(a) : [], aplicado = a?.includes('ajuste aplicado');
+  $('#sheet').hidden = false;
+  $('#sheet-title').textContent = `${e.tipo} · ${e.distancia_km} km`;
+  const lineas = a ? a.split('\n').filter(l => l.startsWith('- ')) : [];
+  $('#sheet-body').innerHTML = `
+    <div class="stat-row">
+      <div><span>Ritmo</span><b>${esc(e.ritmo_min_km)}</b></div>
+      <div><span>Tiempo</span><b>${esc(e.duracion_min)}'</b></div>
+      <div><span>FC</span><b>${esc(e.fc_media || '—')}</b></div>
     </div>
-    <a class="btn ghost" href="${CLAUDE_URL}" target="_blank" rel="noopener">Contar sensaciones o pedir análisis al agente →</a>`;
+    ${a ? `<div class="an ${valClase(a)}"><b>${valIcon(a)} ${esc(tituloAn(a))}</b>
+      ${lineas.map(l => `<p>${esc(l.slice(2))}</p>`).join('')}</div>
+      ${prop.length ? `<div class="card plan-prop"><h3>Ajuste del plan ${aplicado ? '· aplicado ✓' : 'propuesto'}</h3>
+        <p class="muted">${esc((a.match(/\*\*Ajuste propuesto:\*\* (.+)/) || [])[1] || '')}</p>
+        ${prop.map(s => `<div class="item"><span class="tag">${esc(s.dia)} ${new Date(s.fecha + 'T12:00:00Z').getUTCDate()}</span><span class="grow"><b>${esc(s.sesion)}</b><br><small class="muted">${esc(s.detalle)}</small></span></div>`).join('')}
+        ${aplicado ? '' : '<button class="btn primary" id="an-apply">Aplicar al plan</button>'}</div>` : '<p class="muted center">El plan sigue igual.</p>'}`
+    : `<button class="btn primary" id="an-go">${cfg.gemini ? 'Analizar este entreno' : 'Añade la clave de Gemini en Ajustes'}</button>`}
+    ${e.notas ? `<p class="muted">📝 ${esc(e.notas)}</p>` : ''}`;
+  $('#an-apply')?.addEventListener('click', async () => {
+    $('#an-apply').disabled = true; $('#an-apply').textContent = 'Aplicando…';
+    try { await aplicarAjuste(e, a); toast('Plan actualizado ✓'); cerrarSheet(); render(); }
+    catch (err) { toast(err.message); $('#an-apply').disabled = false; }
+  });
+  $('#an-go')?.addEventListener('click', async () => {
+    if (!cfg.gemini) { cerrarSheet(); irA('ajustes'); return; }
+    $('#an-go').disabled = true; $('#an-go').textContent = 'Analizando…';
+    try { await analizarSesion(e); verSesion(e); } catch (err) { toast(err.message); $('#an-go').disabled = false; }
+  });
 }
 
 function renderAjustes() {
@@ -504,10 +704,15 @@ ${texto ? `Descripción del usuario: "${texto}"` : ''}
 Responde SOLO con JSON: {"plato":"nombre corto","items":[{"alimento":"","cantidad_g":0,"kcal":0,"prot_g":0,"hc_g":0,"grasa_g":0}],"nota":"una frase breve, p. ej. si hay mucho sodio"}`;
 }
 async function preguntarGemini(texto, dataUrl) {
+  const out = await geminiJSON(promptNutri(texto), dataUrl);
+  if (!Array.isArray(out.items) || !out.items.length) throw new Error('No he reconocido alimentos; prueba con otra foto o descríbelo');
+  return out;
+}
+async function geminiJSON(prompt, dataUrl) {
   if (!cfg.gemini) throw new Error('Añade tu clave gratuita de Gemini en Ajustes');
   for (let intento = 0; intento < 2; intento++) {
     const model = await modeloGemini();
-    const parts = [{ text: promptNutri(texto) }];
+    const parts = [{ text: prompt }];
     if (dataUrl) parts.push({ inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } });
     const r = await fetch(`${GEMINI}/${model}:generateContent?key=${encodeURIComponent(cfg.gemini)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -518,9 +723,7 @@ async function preguntarGemini(texto, dataUrl) {
     if (!r.ok) throw new Error(`Gemini respondió ${r.status}`);
     const j = await r.json();
     const txt = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').replace(/```json|```/g, '').trim();
-    const out = JSON.parse(txt);
-    if (!Array.isArray(out.items) || !out.items.length) throw new Error('No he reconocido alimentos; prueba con otra foto o descríbelo');
-    return out;
+    try { return JSON.parse(txt); } catch { throw new Error('Respuesta de Gemini no válida; inténtalo de nuevo'); }
   }
 }
 function añadirResultado(out) {
@@ -676,6 +879,14 @@ function formEntreno() {
   const { fecha } = ahora();
   const plan = planRows().find(p => p.fecha === fecha);
   $('#seg-body').innerHTML = `<div class="stack">
+    <p class="photo-title">Captura del reloj o de Strava · se rellena sola</p>
+    <div class="photo-pick">
+      <label class="tile hero-tile run-tile" for="e-cam"><span class="tile-ico">📷</span><b>Hacer foto</b>
+        <input type="file" id="e-cam" accept="image/*" capture="environment" hidden></label>
+      <label class="tile hero-tile alt run-alt" for="e-gal"><span class="tile-ico">🖼️</span><b>Galería</b>
+        <input type="file" id="e-gal" accept="image/*" hidden></label>
+    </div>
+    <p class="muted center" id="e-estado"></p>
     ${plan ? `<p class="muted">Plan de hoy: <b>${esc(plan.sesion)}</b> · ${esc(plan.detalle)}</p>` : ''}
     <div class="row2"><label>Tipo<select id="e-tipo">${['rodaje', 'series', 'tempo', 'tirada', 'fartlek', 'cuestas', 'competicion'].map(t => `<option ${plan && norm(plan.sesion).includes(t) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
     <label>Fecha<input id="e-f" type="date" value="${fecha}"></label></div>
@@ -687,6 +898,24 @@ function formEntreno() {
     <button class="btn primary" id="e-save">Guardar entreno</button>
     <p class="muted">Si la sesión ya llegó de Strava, se completa con tu RPE y notas en vez de duplicarla.</p>
   </div>`;
+  const leerCaptura = async file => {
+    $('#e-estado').innerHTML = '<i class="spinner"></i> Leyendo la captura…';
+    try {
+      const x = await geminiJSON(`Extrae los datos de esta captura de una app o reloj de running (Mi Fitness, Strava, Xiaomi…).
+Responde SOLO JSON: {"fecha":"AAAA-MM-DD o null","tipo":"rodaje|series|tempo|tirada|fartlek|cuestas|competicion","distancia_km":0,"duracion_min":0,"fc_media":null,"fc_max":null,"cadencia":null,"desnivel_m":null,"extra":"parciales u otros datos útiles, breve"}
+duracion_min en minutos decimales (tiempo en movimiento si aparece). Usa null si un dato no aparece.`, await fotoBase64(file));
+      if (x.fecha && /^\d{4}-\d{2}-\d{2}$/.test(x.fecha)) $('#e-f').value = x.fecha;
+      if (x.tipo) $('#e-tipo').value = x.tipo;
+      if (x.distancia_km) $('#e-km').value = r1(num(x.distancia_km) * 100) / 100;
+      if (x.duracion_min) { const m = num(x.duracion_min); $('#e-t').value = `${Math.floor(m)}:${String(Math.round((m % 1) * 60)).padStart(2, '0')}`; }
+      if (x.fc_media) $('#e-fc').value = Math.round(num(x.fc_media));
+      const extra = [x.fc_max && `FC máx ${x.fc_max}`, x.cadencia && `cadencia ${x.cadencia}`, x.desnivel_m && `D+${x.desnivel_m}`, x.extra].filter(Boolean).map(limpio).join('; ');
+      if (extra) $('#e-notas').value = extra;
+      $('#e-estado').textContent = '✓ Datos leídos. Añade tu RPE y sensaciones y guarda.';
+    } catch (err) { $('#e-estado').textContent = err.message; }
+  };
+  ['#e-cam', '#e-gal'].forEach(s => $(s).addEventListener('change', ev => ev.target.files[0] && leerCaptura(ev.target.files[0])));
+
   $('#e-save').addEventListener('click', async () => {
     const f = $('#e-f').value, km = num($('#e-km').value), rpe = Math.round(num($('#e-rpe').value));
     const [mm, ss] = $('#e-t').value.split(':'), min = r1(num(mm) + num(ss) / 60);
@@ -704,6 +933,13 @@ function formEntreno() {
         const fila = { fecha: f, tipo: $('#e-tipo').value, distancia_km: km, duracion_min: min, ritmo_min_km: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`,
           desnivel_m: '', fc_media: $('#e-fc').value, rpe: rpe || '', carga: rpe ? Math.round(rpe * min) : '', notas, fuente: 'manual', strava_id: '' };
         await appendLines('entrenos', [toLine(header, fila)], `entreno ${f} ${km} km`);
+      }
+      // Análisis del entrenador sobre la sesión guardada
+      const guardada = csv('entrenos').rows.filter(r => r.fecha === f).at(-1);
+      if (guardada && cfg.gemini) {
+        $('#e-save').disabled = true; $('#e-save').innerHTML = '<i class="spinner"></i> Analizando el entreno…';
+        try { await analizarSesion(guardada); runTab = 'resumen'; render(); verSesion(guardada); return; }
+        catch (err) { toast(err.message); }
       }
       cerrarSheet(); toast('Entreno guardado ✓'); render();
     } catch (e) { toast(e.message); }
