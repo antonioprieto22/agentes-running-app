@@ -2,15 +2,15 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
   comidas: 'nutricion/comidas.csv', alimentos: 'nutricion/alimentos.csv', actividad: 'nutricion/actividad.csv',
   entrenos: 'running/entrenos.csv', peso: 'peso.csv', analisis: 'running/analisis.md',
-  stravaEstado: 'running/strava-estado.json',
+  stravaEstado: 'running/strava-estado.json', stravaReg: 'running/strava.csv',
 };
-const OPCIONALES = new Set(['analisis', 'stravaEstado']);   // pueden no existir todavía
+const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg']);   // pueden no existir todavía
 const CLAUDE_URL = 'https://claude.ai/code';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const COMIDAS = ['desayuno', 'almuerzo', 'comida', 'merienda', 'cena', 'snack'];
@@ -198,8 +198,21 @@ function renderNutri(hoy) {
   const restante = Math.round(ref - n.t.kcal);
   const porComida = COMIDAS.map(c => ({ c, rs: n.rows.filter(r => r.comida === c) })).filter(x => x.rs.length);
 
-  $('#v-nutri').innerHTML = `
-    <div class="card hero2">
+  // Día cerrado → el balance es lo principal de la pantalla.
+  const def = bal != null && bal < 0;
+  const balanceHero = bal == null ? '' : `
+    <button class="balance ${def ? 'def' : 'sup'}" id="bal-hero">
+      <span class="bal-label">${def ? 'Déficit' : 'Superávit'} del día</span>
+      <b class="bal-num"><span id="bal-num">0</span><small>kcal</small></b>
+      <div class="bal-bars">
+        <div><span>Ingesta</span><i><em style="width:${Math.min(100, (n.t.kcal / Math.max(n.gasto, n.t.kcal)) * 100)}%"></em></i><b>${fmt(n.t.kcal)}</b></div>
+        <div><span>Gasto</span><i><em class="g" style="width:${Math.min(100, (n.gasto / Math.max(n.gasto, n.t.kcal)) * 100)}%"></em></i><b>${fmt(n.gasto)}</b></div>
+      </div>
+      <span class="bal-eq">${def ? '≈ ' + (Math.abs(bal) / 7700).toFixed(2).replace('.', ',') + ' kg de grasa' : 'Mañana compensa con un día más ligero'} · ${fmt(n.act.pasos || 0)} pasos</span>
+    </button>`;
+
+  $('#v-nutri').innerHTML = `${balanceHero}
+    <div class="card hero2 ${bal != null ? 'compact' : ''}">
       <button class="ring2" id="ring" aria-label="Ver macros">
         <svg viewBox="0 0 220 220">
           <defs>
@@ -223,7 +236,7 @@ function renderNutri(hoy) {
       </button>
       <div class="pill-row">
         ${bal != null
-          ? `<span class="pill ${bal < 0 ? 'ok' : 'warn'}">${bal < 0 ? 'Déficit' : 'Superávit'} ${fmt(Math.abs(bal))}</span>`
+          ? `<button class="pill soft" id="btn-cierre">⌚ Editar cierre</button>`
           : `<span class="pill soft">${restante >= 0 ? `Quedan ${fmt(restante)}` : `+${fmt(-restante)} sobre TMB`}</span>
              <button class="pill action" id="btn-cierre">⌚ Cerrar día</button>`}
       </div>
@@ -254,6 +267,8 @@ function renderNutri(hoy) {
     }).join('') : `<button class="empty-cta" id="empty-add"><span>📷</span><b>Registra tu primera comida</b><small>Haz una foto del plato</small></button>`}`;
 
   animarAnillo(n.t.kcal, ref);
+  if (bal != null) contar($('#bal-num'), Math.abs(bal), def ? '−' : '+');
+  $('#bal-hero')?.addEventListener('click', () => { macrosAbiertos = true; $('#macros').classList.add('open'); $('#ring').scrollIntoView({ behavior: 'smooth' }); });
   $('#ring').addEventListener('click', () => { macrosAbiertos = !macrosAbiertos; $('#macros').classList.toggle('open', macrosAbiertos); });
   $('#btn-cierre')?.addEventListener('click', () => abrirSheet('cierre'));
   $('#empty-add')?.addEventListener('click', () => abrirSheet());
@@ -271,6 +286,18 @@ function miniRing(nombre, v, ref, color) {
     <circle cx="32" cy="32" r="${r}" stroke="${color}" stroke-width="7" fill="none" stroke-linecap="round"
       stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - pct)}" class="mini-arc"/></g></svg>
     <b>${Math.round(v)}<small>g</small></b><span>${nombre}</span></div>`;
+}
+
+// Contador animado genérico (número grande del balance / logro).
+function contar(el, valor, prefijo = '', dec = 0) {
+  if (!el) return;
+  const t0 = performance.now(), dur = 1200;
+  const paso = now => {
+    const t = Math.min(1, (now - t0) / dur), v = valor * (1 - Math.pow(1 - t, 3));
+    el.textContent = prefijo + (dec ? v.toFixed(dec).replace('.', ',') : fmt(v));
+    if (t < 1 && el.isConnected !== false) requestAnimationFrame(paso);
+  };
+  requestAnimationFrame(paso);
 }
 
 // Llenado elástico + contador.
@@ -362,21 +389,34 @@ function renderRun(hoy, dir) {
   const aUlt = ultima && analisisDe(ultima), fallo = ultima && fallidos.get(refDe(ultima));
 
   const tarjeta = (x, i) => {
-    const d = new Date(x.fecha + 'T12:00:00Z');
+    const d = new Date(x.fecha + 'T12:00:00Z'), t = tipoSesion(`${x.sesion} ${x.detalle}`);
     const cuando = x.fecha === hoy ? 'Hoy' : x.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[d.getUTCDay()];
-    return `<div class="next" data-i="${i}">
-      <span class="next-when">${cuando} · ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span>
-      <b class="next-what">${esc(x.sesion)}</b>
-      <span class="next-detail">${esc(x.detalle)}</span>
-    </div>`;
+    const partes = x.detalle.split(/\s+\+\s+|\s+·\s+/).filter(Boolean);
+    return `<div class="next t-${t}" data-i="${i}"><div class="flip">
+      <div class="face cara">
+        <span class="next-when">${cuando} · ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span>
+        <span class="sym">${SIMBOLO[t]}</span>
+        <b class="next-what">${esc(x.sesion)}</b>
+        <span class="tap-hint">Toca para ver la sesión</span>
+      </div>
+      <div class="face dorso">
+        <b>${esc(x.sesion)}</b>
+        <ul>${partes.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
+      </div>
+    </div></div>`;
   };
+
+  // Entreno de hoy hecho → "Logro del día" (principal). Si no, aviso del análisis más reciente.
+  const hoyE = r.hoyE.at(-1), aHoy = hoyE && analisisDe(hoyE);
   let chip = '';
-  if (ultima && aUlt) chip = `<button class="analysis-chip ${valClase(aUlt)}" id="chip-an">${valIcon(aUlt)} <span>${esc(tituloAn(aUlt))}</span></button>`;
+  if (hoyE) chip = logroHTML(hoyE, aHoy, fallidos.get(refDe(hoyE)));
+  else if (ultima && aUlt) chip = `<button class="analysis-chip ${valClase(aUlt)}" id="chip-an">${valIcon(aUlt)} <span>${esc(tituloAn(aUlt))}</span></button>`;
   else if (ultima && !cfg.gemini) chip = `<button class="analysis-chip" id="chip-an">🔑 <span>Añade la clave de Gemini para analizar tus entrenos</span></button>`;
   else if (ultima && fallo) chip = `<button class="analysis-chip mid" id="chip-an">⚠️ <span>${esc(fallo)} · <u>Reintentar</u></span></button>`;
   else if (ultima) chip = `<div class="analysis-chip"><i class="spinner"></i><span>Analizando tu ${esc(ultima.tipo)} del ${new Date(ultima.fecha + 'T12:00:00Z').getUTCDate()}…</span></div>`;
 
   body.innerHTML = `${chip}
+    ${hoyE && ruedaN ? '<p class="sec-title">Próximas sesiones</p>' : ''}
     <div class="rueda" id="rueda">${pend.map(tarjeta).join('') || '<div class="next pos0"><b class="next-what">Sin sesiones pendientes</b><span class="next-detail">Pide un plan nuevo al agente</span></div>'}
       ${ruedaN > 1 ? `<div class="rueda-dots">${pend.map((_, i) => `<i data-d="${i}"></i>`).join('')}</div>` : ''}
     </div>
@@ -391,7 +431,20 @@ function renderRun(hoy, dir) {
     </div>`;
 
   colocarRueda();
-  $$('#rueda .next').forEach(c => c.addEventListener('click', () => { const i = +c.dataset.i; if (i !== ruedaIdx) { ruedaIdx = i; colocarRueda(); } }));
+  $$('#rueda .next').forEach(c => c.addEventListener('click', () => {
+    const i = +c.dataset.i;
+    if (i !== ruedaIdx) { ruedaIdx = i; colocarRueda(); } else c.classList.toggle('flipped');
+  }));
+  if (hoyE) {
+    $('#logro')?.addEventListener('click', () => {
+      if (aHoy) return verSesion(hoyE);
+      if (!cfg.gemini) return irA('ajustes');
+      fallidos.delete(refDe(hoyE)); renderRun(hoy); analizarAuto(hoyE);
+    });
+    contar($('#logro-km'), num(hoyE.distancia_km), '', 2);
+    if (!aHoy && !fallidos.has(refDe(hoyE)) && cfg.gemini) analizarAuto(hoyE);
+    return;
+  }
   $('#chip-an')?.addEventListener('click', () => {
     if (aUlt) return verSesion(ultima);
     if (!cfg.gemini) return irA('ajustes');
@@ -400,11 +453,53 @@ function renderRun(hoy, dir) {
   if (ultima && !aUlt && !fallo && cfg.gemini) analizarAuto(ultima);
 }
 
+// Tipo de sesión → símbolo propio.
+function tipoSesion(txt) {
+  const s = norm(txt);
+  if (/series|interval|\d+\s*[x×]\s*\d+/.test(s)) return 'series';
+  if (/tempo|umbral|progresiv/.test(s)) return 'tempo';
+  if (/tirada|largo/.test(s)) return 'tirada';
+  if (/competic|carrera popular|media maraton/.test(s)) return 'carrera';
+  if (/z2|zona 2|suave|regenera/.test(s)) return 'z2';
+  return 'rodaje';
+}
+const SIMBOLO = {
+  // Series: bloques de intensidad que suben y bajan
+  series: '<svg viewBox="0 0 48 48" class="sym-svg"><rect x="5" y="26" width="6" height="16" rx="2"/><rect x="15" y="12" width="6" height="30" rx="2"/><rect x="25" y="26" width="6" height="16" rx="2"/><rect x="35" y="8" width="6" height="34" rx="2"/><path d="M4 6l4 4 4-4" class="ln"/></svg>',
+  // Zona 2: corazón con pulso tranquilo
+  z2: '<svg viewBox="0 0 48 48" class="sym-svg"><path class="ln" d="M24 41S6 30 6 17a9 9 0 0 1 18-3 9 9 0 0 1 18 3c0 13-18 24-18 24z"/><path class="ln" d="M11 24h7l3-5 4 9 3-4h9"/></svg>',
+  // Rodaje: camino continuo
+  rodaje: '<svg viewBox="0 0 48 48" class="sym-svg"><path class="ln" d="M8 40c10 0 6-12 16-12s6-12 16-12"/><circle cx="8" cy="40" r="3.5"/><circle cx="40" cy="16" r="3.5"/><path class="ln dash" d="M8 40c10 0 6-12 16-12s6-12 16-12" transform="translate(0 0)"/></svg>',
+  // Tirada: ruta larga con bandera de meta
+  tirada: '<svg viewBox="0 0 48 48" class="sym-svg"><path class="ln" d="M6 38c6-8 12 2 18-6s10-10 16-6"/><path class="ln" d="M38 26V8"/><path d="M38 8h8l-3 4 3 4h-8z"/><circle cx="6" cy="38" r="3"/></svg>',
+  // Tempo / progresivo: velocímetro
+  tempo: '<svg viewBox="0 0 48 48" class="sym-svg"><path class="ln" d="M8 34a16 16 0 1 1 32 0"/><path class="ln" d="M24 34l9-11"/><circle cx="24" cy="34" r="3"/></svg>',
+  // Competición: medalla
+  carrera: '<svg viewBox="0 0 48 48" class="sym-svg"><path class="ln" d="M16 4l8 14 8-14"/><circle class="ln" cx="24" cy="30" r="11"/><path d="M24 23l2 5h5l-4 3 1.5 5-4.5-3-4.5 3 1.5-5-4-3h5z"/></svg>',
+};
+
+function logroHTML(e, a, fallo) {
+  const t = tipoSesion(`${e.tipo} ${e.notas}`);
+  const lineas = a ? a.split('\n').filter(l => l.startsWith('- ')).slice(0, 4) : [];
+  return `<button class="logro t-${t} ${a ? valClase(a) : ''}" id="logro">
+    <span class="logro-tag">🏅 Logro del día</span>
+    <span class="sym big">${SIMBOLO[t]}</span>
+    <b class="logro-km"><span id="logro-km">0</span><small>km</small></b>
+    <span class="logro-stats">${esc(e.duracion_min)}' · ${esc(e.ritmo_min_km)}/km${e.fc_media ? ' · ' + esc(e.fc_media) + ' ppm' : ''}${e.rpe ? ' · RPE ' + esc(e.rpe) : ''}</span>
+    ${a ? `<span class="logro-val">${valIcon(a)} ${esc(tituloAn(a))}</span>
+      <ul class="logro-list">${lineas.map(l => `<li>${esc(l.slice(2))}</li>`).join('')}</ul>`
+    : !cfg.gemini ? '<span class="logro-val">🔑 Añade la clave de Gemini para el análisis</span>'
+    : fallo ? `<span class="logro-val">⚠️ ${esc(fallo)} · <u>Reintentar</u></span>`
+    : '<span class="logro-val"><i class="spinner"></i> Analizando tu sesión…</span>'}
+  </button>`;
+}
+
 // Noria: cada tarjeta se coloca según su distancia a la seleccionada.
 function colocarRueda() {
   $$('#rueda .next').forEach(c => {
     const o = +c.dataset.i - ruedaIdx;
-    c.className = 'next ' + (o < 0 ? 'gone' : o === 0 ? 'pos0' : o === 1 ? 'pos1' : o === 2 ? 'pos2' : 'hide');
+    c.classList.remove('gone', 'pos0', 'pos1', 'pos2', 'hide', 'flipped');
+    c.classList.add(o < 0 ? 'gone' : o === 0 ? 'pos0' : o === 1 ? 'pos1' : o === 2 ? 'pos2' : 'hide');
   });
   $$('#rueda-dots i, .rueda-dots i').forEach(d => d.classList.toggle('on', +d.dataset.d === ruedaIdx));
 }
@@ -445,6 +540,7 @@ const tituloAn = a => (a.match(/\*\*Valoración:\*\* \w+ — (.+)/) || [])[1] ||
 
 function renderStrava(body, r) {
   const sv = r.all.filter(e => e.fuente === 'strava');
+  const reg = parseCsv(D.stravaReg?.text || 'x').rows;
   let st = null;
   try { st = JSON.parse(D.stravaEstado?.text || 'null'); } catch { st = null; }
   const fCorta = f => (f ? new Date(f + 'T12:00:00Z').getUTCDate() + ' ' + MESES[new Date(f + 'T12:00:00Z').getUTCMonth()] : '—');
@@ -460,10 +556,14 @@ function renderStrava(body, r) {
           <span class="tag">${u.estado === 'importada' ? 'importada ✓' : 'ya registrada con Mi Fitness'}</span>
         </div>` : ''}
       <div class="stat-row">
-        <div><span>Importadas</span><b>${sv.length}</b></div>
-        <div><span>Última importada</span><b>${fCorta(sv.at(-1)?.fecha)}</b></div>
+        <div><span>En Strava</span><b>${reg.length || sv.length}</b></div>
+        <div><span>Última</span><b>${fCorta((reg.at(-1) || sv.at(-1))?.fecha)}</b></div>
         <div><span>Comprobado</span><b id="st-run">—</b></div>
       </div>
+      ${reg.length ? `<div class="st-list">${reg.slice().reverse().slice(0, 15).map(x => `<div class="item">
+        <span class="date mini-date"><small>${DIAS[new Date(x.fecha + 'T12:00:00Z').getUTCDay()]}</small><b>${new Date(x.fecha + 'T12:00:00Z').getUTCDate()}</b></span>
+        <span class="grow"><b>${esc(x.distancia_km)} km</b> · ${esc(x.ritmo_min_km)}/km<br><small class="muted">${esc(x.nombre)}</small></span>
+        <span class="tag ${x.uso.startsWith('dup') ? '' : 'st'}">${x.uso.startsWith('dup') ? 'Mi Fitness' : 'importada'}</span></div>`).join('')}</div>` : ''}
       ${u && u.fecha < addDays(ahora().fecha, -2) && r.all.some(e => e.fecha > u.fecha)
         ? `<p class="aviso">⚠️ Tienes entrenos posteriores al ${fCorta(u.fecha)} que no han llegado a Strava. Revisa en Mi Fitness → Perfil → Cuentas vinculadas → Strava.</p>` : ''}
       <button class="btn strava-btn" id="st-sync">${ICON_STRAVA} Sincronizar ahora</button>

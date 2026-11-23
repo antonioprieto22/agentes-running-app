@@ -416,3 +416,82 @@ textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px
 .strava-btn { background: #fc4c02; color: #fff; display: flex; justify-content: center; align-items: center; gap: 8px; }
 .strava-btn svg { width: 18px; height: 18px; }
 .aviso { font-size: 13px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, #eab308 14%, transparent); }
+
+/* ===== v1.5: balance principal, noria fluida, símbolos y logro ===== */
+/* Balance del día (protagonista cuando el día está cerrado) */
+.balance { display: grid; justify-items: center; gap: 8px; padding: 26px 18px 20px; border-radius: 28px; color: #fff; text-align: center; animation: pop .5s cubic-bezier(.2,.9,.3,1.2); }
+.balance.def { background: radial-gradient(120% 90% at 50% 0%, #34d399 0%, #059669 55%, #064e3b 100%); box-shadow: 0 10px 30px rgba(16,185,129,.25); }
+.balance.sup { background: radial-gradient(120% 90% at 50% 0%, #fb7185 0%, #e11d48 55%, #4c0519 100%); box-shadow: 0 10px 30px rgba(225,29,72,.25); }
+.bal-label { font-size: 13px; text-transform: uppercase; letter-spacing: .14em; opacity: .9; font-weight: 700; }
+.bal-num { font-size: 68px; font-weight: 900; letter-spacing: -.05em; line-height: 1; font-variant-numeric: tabular-nums; }
+.bal-num small { font-size: 18px; font-weight: 600; margin-left: 4px; letter-spacing: 0; opacity: .85; }
+.bal-bars { width: 100%; display: grid; gap: 6px; margin-top: 6px; }
+.bal-bars div { display: grid; grid-template-columns: 64px 1fr 52px; align-items: center; gap: 8px; font-size: 12px; }
+.bal-bars span { text-align: left; opacity: .85; }
+.bal-bars b { text-align: right; }
+.bal-bars i { height: 8px; border-radius: 4px; background: rgba(255,255,255,.2); overflow: hidden; }
+.bal-bars em { display: block; height: 100%; border-radius: 4px; background: #fff; animation: grow 1s ease-out; transform-origin: left; }
+.bal-bars em.g { background: rgba(255,255,255,.55); }
+.bal-eq { font-size: 13px; opacity: .9; }
+@keyframes grow { from { transform: scaleX(0); } }
+@keyframes pop { from { transform: scale(.94); opacity: 0; } }
+.hero2.compact { padding: 14px; gap: 8px; }
+.hero2.compact .ring2, .hero2.compact .ring2 svg { width: 150px; height: 150px; }
+.hero2.compact .ring-lbl b { font-size: 32px; }
+
+/* Noria: más fluida (tarjetas apiladas que suben/bajan, sin giros bruscos) */
+.rueda { height: 270px; perspective: 1200px; }
+.rueda .next { padding: 0; height: 214px; border: 0; background: none; align-content: stretch;
+  transition: transform .6s cubic-bezier(.22,1,.36,1), opacity .5s cubic-bezier(.22,1,.36,1), filter .5s; }
+.rueda .next .flip { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .6s cubic-bezier(.22,1,.36,1); }
+.rueda .next.flipped .flip { transform: rotateY(180deg); }
+.rueda .face { position: absolute; inset: 0; border-radius: 26px; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  display: grid; justify-items: center; align-content: center; gap: 6px; padding: 18px 20px; text-align: center; overflow: hidden;
+  background: var(--card); border: 1px solid var(--line); color: var(--muted); transition: background .5s, color .5s, border-color .5s; }
+.rueda .face::before { content: ''; position: absolute; inset: 0; background: linear-gradient(150deg, var(--r-acc2), var(--r-acc) 55%, var(--r-acc3)); opacity: 0; transition: opacity .5s; z-index: -1; }
+.rueda .face { isolation: isolate; }
+.rueda .dorso { transform: rotateY(180deg); align-content: start; justify-items: start; text-align: left; overflow-y: auto; }
+.rueda .dorso b { font-size: 18px; text-transform: capitalize; }
+.rueda .dorso ul { padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
+.rueda .next.pos0 { transform: translateY(0) scale(1); opacity: 1; filter: none; box-shadow: none; background: none; }
+.rueda .next.pos0 .face { color: #fff; border-color: transparent; box-shadow: 0 10px 28px var(--r-glow); }
+.rueda .next.pos0 .face::before { opacity: 1; }
+.rueda .next.pos1 { transform: translateY(30px) scale(.92); opacity: 1; filter: brightness(.8); }
+.rueda .next.pos2 { transform: translateY(54px) scale(.84); opacity: .55; filter: brightness(.65); }
+.rueda .next.hide { transform: translateY(70px) scale(.78); opacity: 0; }
+.rueda .next.gone { transform: translateY(-46px) scale(1.04); opacity: 0; }
+.rueda .next:not(.pos0) .face > * { opacity: 0; transition: opacity .25s; }
+.rueda .next.pos0 .face > * { opacity: 1; transition: opacity .35s .15s; }
+.rueda .next .next-what { font-size: 26px; color: inherit; }
+.rueda .next-when { font-size: 12px; }
+.tap-hint { font-size: 11px; opacity: .75 !important; }
+.rueda.tope .next.pos0 { animation: tope .35s cubic-bezier(.22,1,.36,1); }
+.rueda-dots { height: 214px; right: -12px; }
+.sec-title { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 4px 2px -4px; }
+
+/* Símbolos por tipo de sesión */
+.sym { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 20px; background: rgba(255,255,255,.16); }
+.sym-svg { width: 40px; height: 40px; fill: currentColor; stroke: none; }
+.sym-svg .ln { fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.sym-svg .dash { stroke-dasharray: 3 7; opacity: .5; }
+.sym.big { width: 76px; height: 76px; border-radius: 24px; }
+.sym.big .sym-svg { width: 48px; height: 48px; }
+
+/* Logro del día */
+.logro { display: grid; justify-items: center; gap: 8px; padding: 22px 18px; border-radius: 28px; color: #fff; text-align: center;
+  background: radial-gradient(120% 90% at 50% 0%, #60a5fa 0%, #2f7bff 50%, #172554 100%); box-shadow: 0 10px 30px var(--r-glow); animation: pop .5s cubic-bezier(.2,.9,.3,1.2); }
+.logro.t-series { background: radial-gradient(120% 90% at 50% 0%, #a78bfa 0%, #6d28d9 50%, #1e1b4b 100%); }
+.logro.t-tirada { background: radial-gradient(120% 90% at 50% 0%, #22d3ee 0%, #0e7490 55%, #083344 100%); }
+.logro-tag { font-size: 12px; text-transform: uppercase; letter-spacing: .14em; font-weight: 700; opacity: .9; }
+.logro-km { font-size: 60px; font-weight: 900; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.logro-km small { font-size: 18px; font-weight: 600; margin-left: 4px; opacity: .85; letter-spacing: 0; }
+.logro-stats { font-size: 14px; opacity: .9; }
+.logro-val { font-weight: 700; font-size: 16px; margin-top: 4px; }
+.logro-list { list-style: none; padding: 0; display: grid; gap: 6px; text-align: left; width: 100%; }
+.logro-list li { background: rgba(255,255,255,.12); border-radius: 12px; padding: 8px 12px; font-size: 13px; }
+
+/* Registro de Strava */
+.st-list .item { gap: 10px; }
+.mini-date { display: grid; text-align: center; line-height: 1.1; min-width: 40px; border-radius: 10px; padding: 4px 0; background: var(--soft); }
+.mini-date small { font-size: 10px; text-transform: uppercase; color: var(--muted); }
+.tag.st { background: #fc4c02; color: #fff; }
