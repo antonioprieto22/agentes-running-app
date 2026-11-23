@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.0.2';
+const VERSION = '2.1.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1428,4 +1428,14 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 
 gestos();
 irA(location.hash === '#run' ? 'run' : 'nutri');
-cargar().then(() => { if (location.hash === '#comida' && cfg.token) abrirSheet(); });
+// Pantalla de carga: 3 s (lo que tarda la rueda) mientras se cargan los datos por detrás.
+const splashFin = new Promise(r => setTimeout(r, 3000));
+const cargaInicial = cargar();
+Promise.all([splashFin, cargaInicial.catch(() => {})]).then(() => {
+  const s = $('#splash'); if (!s) return;
+  s.classList.add('fuera');
+  setTimeout(() => s.remove(), 500);
+  // Reanima la rueda/contadores ahora que la pantalla es visible.
+  if (seccion === 'nutri' || seccion === 'run') render();
+  if (location.hash === '#comida' && cfg.token) abrirSheet();
+});
