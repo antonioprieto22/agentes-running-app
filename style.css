@@ -7,24 +7,25 @@
   --good: #15803d;
   --bad: #b91c1c;
   --radius: 18px;
-  /* Nutrición: cálido */
-  --n-acc: #c2410c; --n-acc2: #f97316; --n-soft: #fff1e8; --n-ink: #7c2d12;
-  /* Running: frío */
-  --r-acc: #1d4ed8; --r-acc2: #3b82f6; --r-soft: #e8f0ff; --r-ink: #1e3a8a;
-  --acc: var(--n-acc); --acc2: var(--n-acc2); --soft: var(--n-soft); --ink: var(--n-ink);
+  /* Nutrición: naranja neón (mismo degradado que la rueda) */
+  --n-acc: #ff6a00; --n-acc2: #ffb02e; --n-acc3: #e11d48; --n-soft: #fff1e6; --n-ink: #9a3412; --n-glow: rgba(255, 106, 0, .45);
+  /* Running: azul neón */
+  --r-acc: #2f7bff; --r-acc2: #00b4ff; --r-acc3: #1d4ed8; --r-soft: #e8f0ff; --r-ink: #1e3a8a; --r-glow: rgba(47, 123, 255, .45);
+  --acc: var(--n-acc); --acc2: var(--n-acc2); --acc3: var(--n-acc3); --soft: var(--n-soft); --ink: var(--n-ink); --glow: var(--n-glow);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f0f10; --card: #1a1a1c; --text: #f5f5f4; --muted: #a8a29e; --line: #2c2c30;
-    --good: #4ade80; --bad: #f87171;
-    --n-acc: #fb923c; --n-acc2: #fdba74; --n-soft: #2a1a10; --n-ink: #fed7aa;
-    --r-acc: #60a5fa; --r-acc2: #93c5fd; --r-soft: #0f1a2e; --r-ink: #bfdbfe;
+    /* Negro "pantalla apagada" (OLED) */
+    --bg: #000000; --card: #0b0b0c; --text: #f5f5f4; --muted: #8f8a86; --line: #1c1c1f;
+    --good: #39ff88; --bad: #ff4d6d;
+    --n-soft: #1d0c00; --n-ink: #ffb27a; --n-glow: rgba(255, 106, 0, .6);
+    --r-soft: #00102a; --r-ink: #9cc3ff; --r-glow: rgba(47, 123, 255, .6);
     color-scheme: dark;
   }
 }
-body[data-sec="run"] { --acc: var(--r-acc); --acc2: var(--r-acc2); --soft: var(--r-soft); --ink: var(--r-ink); }
-body[data-sec="ajustes"] { --acc: var(--muted); --acc2: var(--muted); --soft: var(--card); --ink: var(--text); }
+body[data-sec="run"] { --acc: var(--r-acc); --acc2: var(--r-acc2); --acc3: var(--r-acc3); --soft: var(--r-soft); --ink: var(--r-ink); --glow: var(--r-glow); }
+body[data-sec="ajustes"] { --acc: var(--muted); --acc2: var(--muted); --acc3: var(--muted); --soft: var(--card); --ink: var(--text); --glow: transparent; }
 
 * { box-sizing: border-box; margin: 0; }
 [hidden] { display: none !important; }
@@ -273,3 +274,27 @@ textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px
 .big-input span { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .check { display: flex; align-items: center; gap: 8px; color: var(--text); }
 .check input { width: auto; }
+
+/* ===== v1.2: neón ===== */
+.top { background: linear-gradient(135deg, var(--acc2), var(--acc) 55%, var(--acc3)); box-shadow: 0 6px 28px var(--glow); }
+.fab, .btn.primary, .pill.action, .chip.on { background: linear-gradient(135deg, var(--acc2), var(--acc) 60%, var(--acc3)); box-shadow: 0 0 18px var(--glow); color: #fff; }
+.tabs button.on { color: var(--acc); text-shadow: 0 0 12px var(--glow); }
+.tabs button.on svg { filter: drop-shadow(0 0 6px var(--glow)); }
+.meal-kcal, .plato-head span, .count, .back { color: var(--acc); text-shadow: 0 0 14px var(--glow); }
+.plato { border-color: var(--acc); box-shadow: 0 0 16px var(--glow) inset, 0 0 12px var(--glow); }
+.hero-tile { background: linear-gradient(135deg, #ffb02e, #ff6a00 55%, #e11d48); box-shadow: 0 0 26px var(--n-glow); }
+.wk .col i { box-shadow: 0 0 12px var(--glow); }
+.session.today .date { background: var(--acc); box-shadow: 0 0 14px var(--glow); }
+@media (prefers-color-scheme: dark) {
+  .card, .meal-card { box-shadow: none; border: 1px solid var(--line); }
+  .tabs { background: #000; }
+  .sheet-card { background: #070708; border-top: 1px solid var(--line); }
+  .ring2 .track { stroke: #1a0a00; }
+}
+
+/* Foto: cámara o galería */
+.photo-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.photo-pick .hero-tile { margin: 0; padding: 22px 10px; }
+.photo-pick .hero-tile.alt { background: #111; color: #ffb27a; border: 1px solid #ff6a00; box-shadow: 0 0 14px var(--n-glow); }
+@media (prefers-color-scheme: light) { .photo-pick .hero-tile.alt { background: #fff1e6; color: #9a3412; } }
+.photo-title { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 2px 0 8px; }

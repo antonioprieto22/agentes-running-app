@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -405,26 +405,27 @@ function vistaInicio() {
   $('#sheet-title').textContent = 'Añadir';
   $('#sheet-body').innerHTML = `
     ${cabeceraComida()}
-    <label class="tile hero-tile" for="foto-in">
-      <span class="tile-ico">📷</span><b>Foto del plato</b><small>La IA detecta alimentos y kcal</small>
-      <input type="file" id="foto-in" accept="image/*" capture="environment" hidden>
-    </label>
+    <p class="photo-title">Foto del plato · la IA detecta alimentos y kcal</p>
+    <div class="photo-pick">
+      <label class="tile hero-tile" for="foto-in"><span class="tile-ico">📷</span><b>Hacer foto</b>
+        <input type="file" id="foto-in" accept="image/*" capture="environment" hidden></label>
+      <label class="tile hero-tile alt" for="gal-in"><span class="tile-ico">🖼️</span><b>Galería</b>
+        <input type="file" id="gal-in" accept="image/*" hidden></label>
+    </div>
     <div class="tiles">
       <button class="tile" data-v="barras"><span class="tile-ico">▥</span><b>Código de barras</b></button>
       <button class="tile" data-v="texto"><span class="tile-ico">✍️</span><b>Describir</b></button>
       <button class="tile" data-v="base"><span class="tile-ico">📚</span><b>Mi base</b></button>
-      <button class="tile" data-v="galeria"><span class="tile-ico">🖼️</span><b>Galería</b></button>
-      <button class="tile small" data-v="peso"><span class="tile-ico">⚖️</span><b>Peso</b></button>
-      <button class="tile small" data-v="cierre"><span class="tile-ico">⌚</span><b>Cerrar día</b></button>
+      <button class="tile" data-v="peso"><span class="tile-ico">⚖️</span><b>Peso</b></button>
+      <button class="tile" data-v="cierre"><span class="tile-ico">⌚</span><b>Cerrar día</b></button>
     </div>
-    <input type="file" id="gal-in" accept="image/*" hidden>
     ${platoHTML()}`;
   bindCabecera(vistaInicio);
   bindPlato(vistaInicio);
   $('#foto-in').addEventListener('change', e => e.target.files[0] && analizarFoto(e.target.files[0]));
   $('#gal-in').addEventListener('change', e => e.target.files[0] && analizarFoto(e.target.files[0]));
   $$('[data-v]').forEach(b => b.addEventListener('click', () => ({
-    barras: vistaBarras, texto: vistaTexto, base: vistaBase, galeria: () => $('#gal-in').click(), peso: vistaPeso, cierre: vistaCierre,
+    barras: vistaBarras, texto: vistaTexto, base: vistaBase, peso: vistaPeso, cierre: vistaCierre,
   })[b.dataset.v]()));
 }
 
@@ -716,7 +717,7 @@ function irA(sec) {
   ['nutri', 'run', 'ajustes'].forEach(s => ($(`#v-${s}`).hidden = s !== sec));
   $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === sec));
   $('#titulo').textContent = { nutri: 'Nutrición', run: 'Running', ajustes: 'Ajustes' }[sec];
-  document.querySelector('meta[name=theme-color]').content = getComputedStyle(document.body).getPropertyValue('--acc').trim() || '#c2410c';
+  document.querySelector('meta[name=theme-color]').content = (matchMedia('(prefers-color-scheme: dark)').matches ? '#000000' : getComputedStyle(document.body).getPropertyValue('--acc').trim() || '#ff6a00');
   window.scrollTo(0, 0);
   if (sec === 'ajustes' || Object.keys(D).length) render();
 }

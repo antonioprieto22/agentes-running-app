@@ -1,5 +1,5 @@
 // Service worker: guarda la "carcasa" de la app para que abra al instante. Los datos (api.github.com) nunca se cachean.
-const CACHE = 'agente-v1.1.0';
+const CACHE = 'agente-v1.2.0';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
