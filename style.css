@@ -630,3 +630,35 @@ main, .top { transition: transform .5s, filter .5s; }
 #inmersion .rueda-dots i { background: #2a2a2a; }
 #inmersion .rueda-dots i.on { background: #fc4c02; }
 #inmersion .rueda-hint { color: #8a8a8a; margin-top: 0; }
+
+/* ===== v2.0: Fuerza (violeta), ajustes arriba y semana unificada ===== */
+:root { --f-acc: #8b5cf6; --f-acc2: #c084fc; --f-acc3: #6d28d9; --f-soft: #f3e8ff; --f-ink: #5b21b6; --f-glow: rgba(139, 92, 246, .18); }
+@media (prefers-color-scheme: dark) { :root { --f-soft: #140a24; --f-ink: #d8b4fe; --f-glow: rgba(139, 92, 246, .24); } }
+body[data-sec="fuerza"] { --acc: var(--f-acc); --acc2: var(--f-acc2); --acc3: var(--f-acc3); --soft: var(--f-soft); --ink: var(--f-ink); --glow: var(--f-glow); }
+
+.top-actions { display: flex; gap: 8px; align-self: flex-start; }
+body[data-sec="ajustes"] #btn-ajustes { background: rgba(255,255,255,.4); }
+
+/* Franja de la semana */
+.semana { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 8px 6px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); }
+.sd { display: grid; justify-items: center; gap: 3px; padding: 6px 0 4px; border-radius: 12px; font-size: 11px; color: var(--muted); transition: transform .15s; }
+.sd:active { transform: scale(.92); }
+.sd > span { font-weight: 700; }
+.sd i { display: flex; gap: 1px; height: 22px; align-items: center; font-style: normal; font-size: 18px; line-height: 1; }
+.sd em { font-style: normal; height: 12px; font-size: 11px; color: var(--good); font-weight: 800; }
+.sd.hoy { background: var(--soft); color: var(--text); box-shadow: inset 0 0 0 1.5px var(--acc); }
+.sd.pasado { opacity: .7; }
+.mini-ico { width: 20px; height: 20px; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.mini-ico .f { fill: currentColor; stroke: none; }
+.sd.run .mini-ico:first-child { color: var(--r-acc); stroke: var(--r-acc); }
+.sd .mini-ico + .mini-ico, .sd.fuerza .mini-ico { stroke: var(--f-acc); color: var(--f-acc); }
+.sd .mini-ico { stroke: currentColor; }
+.sd.run i .mini-ico:first-child { stroke: var(--r-acc); }
+
+/* Fuerza: tarjeta única y logro */
+.rueda.fz-una { height: 214px; }
+.rueda.fz-una .next.pos0 .face { box-shadow: 0 10px 28px var(--f-glow); }
+.rueda.fz-una .next.pos0 .face::before { background: linear-gradient(150deg, var(--f-acc2), var(--f-acc) 55%, var(--f-acc3)); }
+.rueda.fz-una .sym .mini-ico, .fz-logro .sym .mini-ico { width: 40px; height: 40px; stroke: #fff; }
+.fz-logro { background: radial-gradient(120% 90% at 50% 0%, #c084fc 0%, #7c3aed 50%, #2e1065 100%); box-shadow: 0 10px 30px var(--f-glow); }
+.fz-logro .sym { background: rgba(255,255,255,.16); }

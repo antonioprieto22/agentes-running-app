@@ -2,15 +2,16 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.9.1';
+const VERSION = '2.0.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
   comidas: 'nutricion/comidas.csv', alimentos: 'nutricion/alimentos.csv', actividad: 'nutricion/actividad.csv',
   entrenos: 'running/entrenos.csv', peso: 'peso.csv', analisis: 'running/analisis.md',
   stravaEstado: 'running/strava-estado.json', stravaReg: 'running/strava.csv',
+  fuerza: 'fuerza/sesiones.csv', rutinas: 'fuerza/rutinas.md',
 };
-const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg']);   // pueden no existir todavía
+const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg', 'fuerza', 'rutinas']);   // pueden no existir todavía
 const CLAUDE_URL = 'https://claude.ai/code';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const COMIDAS = ['desayuno', 'almuerzo', 'comida', 'merienda', 'cena', 'snack'];
@@ -183,6 +184,7 @@ function render() {
   }
   if (seccion === 'nutri') renderNutri(fecha);
   if (seccion === 'run') renderRun(fecha);
+  if (seccion === 'fuerza') renderFuerza(fecha);
   if (seccion === 'ajustes') renderAjustes();
 }
 
@@ -411,23 +413,7 @@ function renderRun(hoy, dir) {
   const ultima = r.all.filter(e => e.fecha >= addDays(hoy, -3)).at(-1);
   const aUlt = ultima && analisisDe(ultima), fallo = ultima && fallidos.get(refDe(ultima));
 
-  const tarjeta = (x, i) => {
-    const d = new Date(x.fecha + 'T12:00:00Z'), t = tipoSesion(`${x.sesion} ${x.detalle}`);
-    const cuando = x.fecha === hoy ? 'Hoy' : x.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[d.getUTCDay()];
-    const partes = x.detalle.split(/\s+\+\s+|\s+·\s+/).filter(Boolean);
-    return `<div class="next t-${t}" data-i="${i}"><div class="flip">
-      <div class="face cara">
-        <span class="next-when">${cuando} · ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span>
-        <span class="sym">${SIMBOLO[t]}</span>
-        <b class="next-what">${esc(x.sesion)}</b>
-        <span class="tap-hint">Toca para ver la sesión</span>
-      </div>
-      <div class="face dorso">
-        <b>${esc(x.sesion)}</b>
-        <ul>${partes.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
-      </div>
-    </div></div>`;
-  };
+  const tarjeta = (x, i) => tarjetaHTML(x, i, hoy);
 
   // Entreno de hoy hecho → "Logro del día" (principal). Si no, aviso del análisis más reciente.
   const hoyE = r.hoyE.at(-1), aHoy = hoyE && analisisDe(hoyE);
@@ -441,7 +427,7 @@ function renderRun(hoy, dir) {
   // Con el logro del día hecho, la noria se esconde tras un botón negro.
   const ocultarRueda = hoyE && ruedaN && !verProx;
   const sig = pend[0], dSig = sig && new Date(sig.fecha + 'T12:00:00Z');
-  body.innerHTML = `${chip}
+  body.innerHTML = `${semanaHTML(hoy)}${chip}
     ${ocultarRueda ? `<button class="btn-negro" id="btn-prox">
         <span class="bn-sym">${SIMBOLO[tipoSesion(`${sig.sesion} ${sig.detalle}`)]}</span>
         <span class="grow"><b>Próximas sesiones</b><small>${sig.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[dSig.getUTCDay()]} · ${esc(sig.sesion)}</small></span>
@@ -459,6 +445,7 @@ function renderRun(hoy, dir) {
         <b>${s.km}</b><span>${s.now ? 'hoy' : new Date(s.lunes + 'T12:00:00Z').getUTCDate() + ' ' + MESES[new Date(s.lunes + 'T12:00:00Z').getUTCMonth()]}</span></div>`).join('')}</div>
     </div>`;
 
+  bindSemana(hoy);
   colocarRueda();
   $$('#rueda .next').forEach(c => c.addEventListener('click', () => {
     const i = +c.dataset.i;
@@ -481,6 +468,115 @@ function renderRun(hoy, dir) {
     fallidos.delete(refDe(ultima)); renderRun(hoy); analizarAuto(ultima);
   });
   if (ultima && !aUlt && !fallo && cfg.gemini) analizarAuto(ultima);
+}
+
+// Tarjeta de sesión de la noria (cara: día + símbolo + nombre; dorso: detalle).
+function tarjetaHTML(x, i, hoy) {
+  const d = new Date(x.fecha + 'T12:00:00Z'), t = tipoSesion(`${x.sesion} ${x.detalle}`);
+  const cuando = x.fecha === hoy ? 'Hoy' : x.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[d.getUTCDay()];
+  const partes = x.detalle.split(/\s+\+\s+|\s+·\s+/).filter(Boolean);
+  return `<div class="next t-${t}" data-i="${i}"><div class="flip">
+    <div class="face cara">
+      <span class="next-when">${cuando} · ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span>
+      <span class="sym">${SIMBOLO[t]}</span>
+      <b class="next-what">${esc(x.sesion)}</b>
+      <span class="tap-hint">Toca para ver la sesión</span>
+    </div>
+    <div class="face dorso">
+      <b>${esc(x.sesion)}</b>
+      <ul>${partes.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
+    </div>
+  </div></div>`;
+}
+const pendRun = hoy => {
+  const hechos = new Set(csv('entrenos').rows.map(e => e.fecha));
+  return planRows().filter(x => esSesion(x) && (x.fecha > hoy || (x.fecha === hoy && !hechos.has(hoy)))).slice(0, 12);
+};
+
+// ---------- Semana unificada (running + fuerza) ----------
+const esFuerza = x => /fuerza/.test(norm(x.sesion));
+const MINI = {
+  run: '<svg viewBox="0 0 24 24" class="mini-ico"><circle cx="15" cy="4" r="2" class="f"/><path d="M13.5 7.5l-3 6 3.5 2.5-1.5 5M10.5 13.5l-4 2-2.5-1M7.5 10l3.5-2.5 3.5 1.5 2 3"/></svg>',
+  fuerza: '<svg viewBox="0 0 24 24" class="mini-ico"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></svg>',
+};
+function semanaHTML(hoy) {
+  const plan = planRows(), lun = lunes(hoy);
+  const runH = new Set(csv('entrenos').rows.map(e => e.fecha)), fzH = new Set(csv('fuerza').rows.map(s => s.fecha));
+  return `<div class="semana">${[...'LMXJVSD'].map((l, i) => {
+    const f = addDays(lun, i), rows = plan.filter(x => x.fecha === f);
+    const run = rows.some(esSesion) || runH.has(f), fz = rows.some(esFuerza) || fzH.has(f);
+    const hecho = (run && runH.has(f)) || (fz && fzH.has(f));
+    const k = run ? 'run' : fz ? 'fuerza' : '';
+    return `<button class="sd ${f === hoy ? 'hoy' : ''} ${f < hoy ? 'pasado' : ''} ${k}" data-sd="${f}" data-k="${k}">
+      <span>${l}</span><i>${run ? MINI.run : ''}${fz ? MINI.fuerza : ''}${!run && !fz ? '·' : ''}</i><em>${hecho ? '✓' : ''}</em></button>`;
+  }).join('')}</div>`;
+}
+function bindSemana(hoy) {
+  $$('[data-sd]').forEach(b => b.addEventListener('click', ev => {
+    const f = b.dataset.sd, k = b.dataset.k;
+    if (k === 'fuerza') { fuerzaSel = f; if (seccion !== 'fuerza') irA('fuerza', 'left'); else render(); return; }
+    if (k !== 'run') return;
+    const hecho = csv('entrenos').rows.filter(e => e.fecha === f).at(-1);
+    if (seccion !== 'run') { runTab = 'resumen'; irA('run', 'right'); }
+    if (hecho) return inmersion(hecho, ev);
+    const pend = pendRun(hoy), idx = pend.findIndex(x => x.fecha === f);
+    if (idx >= 0) abrirProximas(pend.map((x, i) => tarjetaHTML(x, i, hoy)).join(''), pend.length, ev, idx);
+  }));
+}
+
+// ---------- Fuerza ----------
+let fuerzaSel = null;
+function rutinas() {
+  return [...(D.rutinas?.text || '').matchAll(/^## (.+)$/gm)].map(m => m[1].trim()).filter(n => !n.startsWith('<'));
+}
+function renderFuerza(hoy) {
+  const plan = planRows(), fz = csv('fuerza').rows;
+  const hechas = new Set(fz.map(s => s.fecha)), hoyS = fz.filter(s => s.fecha === hoy).at(-1);
+  const prox = plan.filter(x => esFuerza(x) && (x.fecha > hoy || (x.fecha === hoy && !hechas.has(hoy))));
+  const sel = (fuerzaSel && plan.find(x => x.fecha === fuerzaSel && esFuerza(x))) || prox[0];
+  const rts = rutinas();
+  $('#v-fuerza').innerHTML = `
+    ${semanaHTML(hoy)}
+    ${hoyS ? `<div class="logro fz-logro"><span class="logro-tag">🏋️ Fuerza completada</span>
+        <span class="sym big">${MINI.fuerza}</span>
+        <b class="logro-km cap" style="font-size:34px">${esc(hoyS.rutina)}</b>
+        <span class="logro-val">${esc(hoyS.duracion_min)}' · RPE ${esc(hoyS.rpe || '—')}</span></div>` : ''}
+    ${sel ? `<p class="sec-title">${sel.fecha === hoy ? 'Hoy' : 'Próxima sesión de fuerza'}</p>
+      <div class="rueda fz-una" id="rueda">${tarjetaHTML({ ...sel, sesion: sel.sesion.replace(/^descanso \+ /, '') }, 0, hoy)}</div>`
+      : '<div class="empty card">Sin sesiones de fuerza en el plan.</div>'}
+    <div class="card"><h3>Mis rutinas</h3>
+      ${rts.length ? `<div class="chips">${rts.map(n => `<span class="chip">${esc(n)}</span>`).join('')}</div>`
+        : '<p class="muted">Aún no hay rutinas. Pásaselas al agente de Claude y las integrará en tu plan.</p>'}</div>
+    <div class="card"><h3>Historial</h3>
+      ${fz.slice().reverse().slice(0, 8).map(s => {
+        const d = new Date(s.fecha + 'T12:00:00Z');
+        return `<div class="session"><div class="date"><small>${DIAS[d.getUTCDay()]}</small><b>${d.getUTCDate()}</b></div>
+          <div><b class="cap">${esc(s.rutina)}</b><div class="muted">${esc(s.duracion_min)} min${s.notas ? ' · ' + esc(s.notas) : ''}</div></div>
+          <span class="tag">${s.rpe ? 'RPE ' + esc(s.rpe) : '—'}</span></div>`;
+      }).join('') || '<div class="empty">Aún no has registrado sesiones de fuerza.</div>'}</div>`;
+  bindSemana(hoy);
+  $$('#rueda .next').forEach(c => { c.classList.add('pos0'); c.addEventListener('click', () => c.classList.toggle('flipped')); });
+}
+function formFuerza() {
+  const { fecha } = ahora(), plan = planRows().find(x => x.fecha === fecha && esFuerza(x));
+  const opciones = [...new Set([...(plan ? [plan.sesion.replace(/^(descanso \+ )?fuerza\s*/i, '') || 'fuerza'] : []), ...rutinas(), 'core', 'tren superior', 'piernas', 'movilidad'])];
+  $('#sheet-title').textContent = 'Registrar fuerza';
+  $('#sheet-body').innerHTML = `<div class="stack">
+    ${plan ? `<p class="muted">Plan de hoy: <b>${esc(plan.sesion)}</b> · ${esc(plan.detalle)}</p>` : ''}
+    <label>Rutina<select id="z-rut">${opciones.map(o => `<option>${esc(o)}</option>`).join('')}</select></label>
+    <div class="row2"><label>Fecha<input id="z-f" type="date" value="${fecha}"></label>
+      <label>Duración (min)<input id="z-min" type="number" inputmode="numeric" placeholder="35"></label></div>
+    <label>Esfuerzo (RPE 1–10)<input id="z-rpe" type="number" inputmode="numeric" min="1" max="10"></label>
+    <label>Notas / molestias<input id="z-notas" placeholder="p. ej. rodillas bien, plancha 3×45 s"></label>
+    <button class="btn primary" id="z-save">Guardar sesión</button></div>`;
+  $('#z-save').addEventListener('click', async () => {
+    const min = Math.round(num($('#z-min').value)), rpe = Math.round(num($('#z-rpe').value));
+    if (!min) return toast('Indica la duración');
+    const { header } = csv('fuerza');
+    const fila = { fecha: $('#z-f').value, rutina: limpio($('#z-rut').value), duracion_min: min, rpe: rpe || '', carga: rpe ? rpe * min : '', notas: limpio($('#z-notas').value) };
+    try { await appendLines('fuerza', [toLine(header, fila)], `fuerza ${fila.fecha} ${fila.rutina}`); cerrarSheet(); toast('Sesión de fuerza guardada ✓'); render(); }
+    catch (e) { toast(e.message); }
+  });
 }
 
 // Tipo de sesión → símbolo propio.
@@ -738,8 +834,8 @@ function abrirCapa(ev, clase, html) {
 }
 
 // Próximas sesiones a pantalla completa: solo la noria.
-function abrirProximas(tarjetasHTML, n, ev) {
-  ruedaIdx = 0; ruedaN = n;
+function abrirProximas(tarjetasHTML, n, ev, inicio = 0) {
+  ruedaIdx = inicio; ruedaN = n;
   abrirCapa(ev, 'im-prox', `
     <button class="im-close" id="im-close" aria-label="Cerrar">${ICON_X}</button>
     <div class="prox-wrap">
@@ -906,6 +1002,7 @@ let stream = null;
 
 function abrirSheet(vista) {
   $('#sheet').hidden = false;
+  if (seccion === 'fuerza') return formFuerza();
   if (seccion === 'run') { $('#sheet-title').textContent = 'Registrar entreno'; $('#sheet-body').innerHTML = '<div id="seg-body"></div>'; formEntreno(); return; }
   comidaSel ??= comidaPorHora(ahora().h);
   if (vista === 'cierre') return vistaCierre();
@@ -1282,16 +1379,18 @@ const SEC_ICON = {
   // Plato visto desde arriba con tenedor (izq.) y cuchillo (dcha.)
   nutri: '<svg viewBox="0 0 48 48" class="sec-ico"><circle cx="24" cy="24" r="12.5"/><circle cx="24" cy="24" r="7.5" class="thin"/><path d="M3.5 6v7M6.5 6v7M9.5 6v7M3.5 13c0 2.5 1.3 3.5 3 3.5s3-1 3-3.5M6.5 16.5V42"/><path d="M44.5 6c-3 2.5-4.5 8-4.5 15h4.5M44.5 6v36"/></svg>',
   run: '<svg viewBox="0 0 48 48" class="sec-ico"><circle cx="31" cy="8" r="4" class="fill"/><path d="M28 15l-6 12M22 27l7 5-3 11M22 27l-8 4-5-2M16 20l7-5 7 3 4 6"/><path d="M3 17h7M1 23h7M4 29h5" class="speed"/></svg>',
+  // Mancuerna
+  fuerza: '<svg viewBox="0 0 48 48" class="sec-ico"><path d="M13 12v24M35 12v24M7 17v14M41 17v14M13 24h22"/><path d="M3 24h4M41 24h4" class="thin"/></svg>',
   ajustes: '<svg viewBox="0 0 24 24" class="sec-ico"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
 };
 
 function irA(sec, dir) {
   seccion = sec;
   document.body.dataset.sec = sec;
-  ['nutri', 'run', 'ajustes'].forEach(s => ($(`#v-${s}`).hidden = s !== sec));
+  ['nutri', 'run', 'fuerza', 'ajustes'].forEach(s => ($(`#v-${s}`).hidden = s !== sec));
   if (dir) { const v = $(`#v-${sec}`); v.classList.remove('slide-left', 'slide-right'); void v.offsetWidth; v.classList.add('slide-' + dir); }
   $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === sec));
-  const nombre = { nutri: 'Nutrición', run: 'Running', ajustes: 'Ajustes' }[sec];
+  const nombre = { nutri: 'Nutrición', run: 'Running', fuerza: 'Fuerza', ajustes: 'Ajustes' }[sec];
   $('#titulo').innerHTML = SEC_ICON[sec];
   $('#titulo').setAttribute('aria-label', nombre);
   $('#titulo').classList.remove('pop'); void $('#titulo').offsetWidth; $('#titulo').classList.add('pop');
@@ -1312,6 +1411,7 @@ $('#fab').addEventListener('click', () => abrirSheet());
 $('#sheet-close').addEventListener('click', cerrarSheet);
 $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') cerrarSheet(); });
 $('#btn-sync').addEventListener('click', cargar);
+$('#btn-ajustes').addEventListener('click', () => irA(seccion === 'ajustes' ? 'nutri' : 'ajustes'));
 document.addEventListener('visibilitychange', () => { if (!document.hidden && cfg.token && $('#sheet').hidden) cargar(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
