@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.9.0';
+const VERSION = '1.9.1';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -115,6 +115,7 @@ let D = {};
 let seccion = 'nutri';
 let abiertas = new Set();      // comidas desplegadas
 let macrosAbiertos = false;
+let balDia = null;
 let balVolteado = false;    // día cerrado: se ve la rueda (true) o el balance (false)
 
 async function cargar() {
@@ -213,6 +214,8 @@ function renderNutri(hoy) {
     </button>`;
 
   const cerrado = bal != null;
+  // El giro de la tarjeta es solo del día en curso: un día nuevo empieza mostrando el balance.
+  if (balDia !== hoy) { balDia = hoy; balVolteado = false; }
   const ringCard = `
     <div class="card hero2 ${cerrado ? 'fc-face fc-back' : ''}">
       <button class="ring2" id="ring" aria-label="${cerrado ? 'Volver al balance' : 'Ver macros'}">
