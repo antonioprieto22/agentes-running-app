@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -342,6 +342,7 @@ function animarAnillo(total, ref) {
 
 // ---------- Running ----------
 let runTab = 'resumen';
+let verProx = false;   // con el logro hecho, la noria se abre desde el botón negro
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const DIAS_LARGOS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const esSesion = x => !/^(descanso|fuerza)/.test(norm(x.sesion));
@@ -392,7 +393,7 @@ function renderRun(hoy, dir) {
           <div class="muted">${esc(e.ritmo_min_km)}/km · ${esc(e.duracion_min)} min${e.fc_media ? ' · ' + esc(e.fc_media) + ' ppm' : ''}</div></div>
         <span class="tag">${a ? valIcon(a) : e.rpe ? 'RPE ' + esc(e.rpe) : '—'}</span></button>`;
     }).join('') || '<div class="empty">Sin sesiones.</div>'}</div>`;
-    $$('[data-ses]').forEach(b => b.addEventListener('click', () => verSesion(r.all[+b.dataset.ses])));
+    $$('[data-ses]').forEach(b => b.addEventListener('click', ev => inmersion(r.all[+b.dataset.ses], ev)));
     return;
   }
   if (runTab === 'strava') { renderStrava(body, r); return; }
@@ -434,12 +435,18 @@ function renderRun(hoy, dir) {
   else if (ultima && fallo) chip = `<button class="analysis-chip mid" id="chip-an">⚠️ <span>${esc(fallo)} · <u>Reintentar</u></span></button>`;
   else if (ultima) chip = `<div class="analysis-chip"><i class="spinner"></i><span>Analizando tu ${esc(ultima.tipo)} del ${new Date(ultima.fecha + 'T12:00:00Z').getUTCDate()}…</span></div>`;
 
+  // Con el logro del día hecho, la noria se esconde tras un botón negro.
+  const ocultarRueda = hoyE && ruedaN && !verProx;
+  const sig = pend[0], dSig = sig && new Date(sig.fecha + 'T12:00:00Z');
   body.innerHTML = `${chip}
-    ${hoyE && ruedaN ? '<p class="sec-title">Próximas sesiones</p>' : ''}
-    <div class="rueda" id="rueda">${pend.map(tarjeta).join('') || '<div class="next pos0"><b class="next-what">Sin sesiones pendientes</b><span class="next-detail">Pide un plan nuevo al agente</span></div>'}
+    ${ocultarRueda ? `<button class="btn-negro" id="btn-prox">
+        <span class="bn-sym">${SIMBOLO[tipoSesion(`${sig.sesion} ${sig.detalle}`)]}</span>
+        <span class="grow"><b>Próximas sesiones</b><small>${sig.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[dSig.getUTCDay()]} · ${esc(sig.sesion)}</small></span>
+        <span class="bn-arrow">›</span></button>`
+    : `<div class="rueda ${hoyE ? 'aparece' : ''}" id="rueda">${pend.map(tarjeta).join('') || '<div class="next pos0"><b class="next-what">Sin sesiones pendientes</b><span class="next-detail">Pide un plan nuevo al agente</span></div>'}
       ${ruedaN > 1 ? `<div class="rueda-dots">${pend.map((_, i) => `<i data-d="${i}"></i>`).join('')}</div>` : ''}
     </div>
-    ${ruedaN > 1 ? '<p class="rueda-hint">Desliza ↑↓ para ver más sesiones</p>' : ''}
+    ${ruedaN > 1 ? '<p class="rueda-hint">Desliza ↑↓ para ver más sesiones</p>' : ''}`}
     <div class="card vol">
       <div class="vol-head"><span>Esta semana</span><span class="pill soft">ACWR ${r.acwr ?? '—'}${r.fiable ? '' : '*'}</span></div>
       <div class="vol-num"><b>${semAct.km}</b><span>/ ${semPlan || '—'} km</span></div>
@@ -454,9 +461,10 @@ function renderRun(hoy, dir) {
     const i = +c.dataset.i;
     if (i !== ruedaIdx) { ruedaIdx = i; colocarRueda(); } else c.classList.toggle('flipped');
   }));
+  $('#btn-prox')?.addEventListener('click', () => { verProx = true; renderRun(hoy); });
   if (hoyE) {
-    $('#logro')?.addEventListener('click', () => {
-      if (aHoy) return verSesion(hoyE);
+    $('#logro')?.addEventListener('click', ev => {
+      if (aHoy) return inmersion(hoyE, ev);
       if (!cfg.gemini) return irA('ajustes');
       fallidos.delete(refDe(hoyE)); renderRun(hoy); analizarAuto(hoyE);
     });
@@ -465,7 +473,7 @@ function renderRun(hoy, dir) {
     return;
   }
   $('#chip-an')?.addEventListener('click', () => {
-    if (aUlt) return verSesion(ultima);
+    if (aUlt) return inmersion(ultima);
     if (!cfg.gemini) return irA('ajustes');
     fallidos.delete(refDe(ultima)); renderRun(hoy); analizarAuto(ultima);
   });
@@ -542,7 +550,15 @@ function gestos() {
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.3) {
       const i = RUN_TABS.findIndex(x => x[0] === runTab) + (dx < 0 ? 1 : -1);
       if (RUN_TABS[i]) irRunTab(RUN_TABS[i][0]);
+      else if (i < 0) irA('nutri', 'right');           // desde Resumen, hacia la izquierda → Nutrición
     } else if (enRueda && Math.abs(dy) > 35 && Math.abs(dy) > Math.abs(dx)) girarRueda(dy < 0 ? 1 : -1);
+  }, { passive: true });
+  // En Nutrición, deslizar hacia la derecha (dedo a la izquierda) → Running.
+  const n = $('#v-nutri');
+  n.addEventListener('touchstart', e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); }, { passive: true });
+  n.addEventListener('touchend', e => {
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    if (Date.now() - t0 < 800 && dx < -60 && Math.abs(dx) > Math.abs(dy) * 1.3) { runTab = 'resumen'; irA('run', 'left'); }
   }, { passive: true });
   let bloqueo = 0;
   v.addEventListener('wheel', e => {
@@ -680,6 +696,78 @@ async function aplicarAjuste(e, a) {
     return resto.join('\n');
   }, `ajuste del plan tras ${e.tipo} del ${e.fecha}`);
   await modify('analisis', t => t.replace(`<!-- ref:${refDe(e)} -->`, `<!-- ref:${refDe(e)} --> ✔️ ajuste aplicado`), 'ajuste aplicado');
+}
+
+// ---------- Inmersión: análisis a pantalla completa sobre negro ----------
+const IC = {
+  reloj: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  ritmo: '<path d="M4 16a8 8 0 1 1 16 0"/><path d="M12 16l4-5"/>',
+  corazon: '<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/><path d="M7.5 12h2.5l1.5-2 2 4 1.5-2h1.5"/>',
+  llama: '<path d="M12 21c-4 0-6-3-6-6 0-4 4-6 4-10 3 2 4 4 4 6 1-1 2-2 2-3 2 2 2 4 2 7 0 3-2 6-6 6z"/>',
+  monte: '<path d="M3 19l6-10 4 6 3-4 5 8z"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
+  diana: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
+  calendario: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+  nota: '<path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h4"/>',
+  trofeo: '<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M9 20h6"/>',
+  regular: '<circle cx="12" cy="12" r="9"/><path d="M8 15h8M9 9.5h.01M15 9.5h.01"/>',
+  llave: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z"/>',
+};
+const ic = k => `<svg viewBox="0 0 24 24" class="im-ic">${IC[k]}</svg>`;
+
+function inmersion(e, ev) {
+  const ov = $('#inmersion'), a = analisisDe(e), t = tipoSesion(`${e.tipo} ${e.notas}`);
+  const x = ev?.clientX ?? innerWidth / 2, y = ev?.clientY ?? innerHeight / 3;
+  const pos = a ? a.split('\n').filter(l => l.startsWith('- ✅')).map(l => l.slice(4)) : [];
+  const mej = a ? a.split('\n').filter(l => l.startsWith('- 🔧')).map(l => l.slice(4)) : [];
+  const prop = a ? propuestaDe(a) : [], aplicado = a?.includes('ajuste aplicado');
+  const motivo = a ? (a.match(/\*\*Ajuste propuesto:\*\* (.+)/) || [])[1] || '' : '';
+  const d = new Date(e.fecha + 'T12:00:00Z'), vc = a ? valClase(a) : '';
+  const stat = (k, lbl, v) => v ? `<div class="im-stat">${ic(k)}<b>${esc(v)}</b><span>${lbl}</span></div>` : '';
+  ov.style.setProperty('--x', x + 'px'); ov.style.setProperty('--y', y + 'px');
+  ov.className = `t-${t}`;
+  ov.innerHTML = `
+    <button class="im-close" id="im-close" aria-label="Cerrar">${ICON_X}</button>
+    <div class="im-content">
+      <div class="im-hero"><span class="sym big">${SIMBOLO[t]}</span>
+        <b class="im-km">${esc(e.distancia_km)}<small>km</small></b>
+        <span class="im-sub">${esc(e.tipo)} · ${DIAS_LARGOS[d.getUTCDay()]} ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span></div>
+      <div class="im-stats">
+        ${stat('reloj', 'tiempo', e.duracion_min && e.duracion_min + "'")}${stat('ritmo', 'ritmo', e.ritmo_min_km && e.ritmo_min_km + '/km')}
+        ${stat('corazon', 'FC media', e.fc_media && e.fc_media + ' ppm')}${stat('llama', 'esfuerzo', e.rpe && 'RPE ' + e.rpe)}
+        ${stat('monte', 'desnivel', e.desnivel_m && '+' + e.desnivel_m + ' m')}
+      </div>
+      ${a ? `
+        <div class="im-val ${vc}">${ic({ ok: 'trofeo', mid: 'regular', bad: 'llave' }[vc])}<b>${esc(tituloAn(a))}</b></div>
+        ${pos.length ? `<section class="im-sec ok"><h4>${ic('check')} Lo que has hecho bien</h4>${pos.map(p => `<div class="im-item">${ic('check')}<span>${esc(p)}</span></div>`).join('')}</section>` : ''}
+        ${mej.length ? `<section class="im-sec mej"><h4>${ic('diana')} A mejorar</h4>${mej.map(p => `<div class="im-item">${ic('diana')}<span>${esc(p)}</span></div>`).join('')}</section>` : ''}
+        <section class="im-sec plan"><h4>${ic('calendario')} Plan</h4>
+          ${prop.length ? `<p class="im-mot">${esc(motivo)}</p>
+            ${prop.map(s => `<div class="im-item"><span class="im-day">${esc(s.dia)} ${new Date(s.fecha + 'T12:00:00Z').getUTCDate()}</span><span><b>${esc(s.sesion)}</b><br><small>${esc(s.detalle)}</small></span></div>`).join('')}
+            ${aplicado ? '<p class="im-ok">✓ Ajuste aplicado</p>' : '<button class="im-btn" id="im-apply">Aplicar al plan</button>'}`
+          : '<p class="im-mot">El plan sigue igual: no hace falta ajustar nada.</p>'}
+        </section>`
+      : `<button class="im-btn" id="im-go">${cfg.gemini ? 'Analizar este entreno' : 'Añade la clave de Gemini en Ajustes'}</button>`}
+      ${e.notas ? `<section class="im-sec"><h4>${ic('nota')} Notas</h4><p class="im-mot">${esc(e.notas)}</p></section>` : ''}
+    </div>`;
+  ov.hidden = false;
+  document.body.classList.add('inmerso');
+  requestAnimationFrame(() => requestAnimationFrame(() => ov.classList.add('open')));
+  const cerrar = () => {
+    ov.classList.remove('open');
+    setTimeout(() => { ov.hidden = true; document.body.classList.remove('inmerso'); }, 560);
+  };
+  $('#im-close').addEventListener('click', cerrar);
+  $('#im-apply')?.addEventListener('click', async () => {
+    const b = $('#im-apply'); b.disabled = true; b.textContent = 'Aplicando…';
+    try { await aplicarAjuste(e, a); toast('Plan actualizado ✓'); cerrar(); render(); }
+    catch (err) { toast(err.message); b.disabled = false; b.textContent = 'Aplicar al plan'; }
+  });
+  $('#im-go')?.addEventListener('click', async () => {
+    if (!cfg.gemini) { cerrar(); irA('ajustes'); return; }
+    const b = $('#im-go'); b.disabled = true; b.innerHTML = '<i class="spinner"></i> Analizando…';
+    try { await analizarSesion(e); inmersion(e); } catch (err) { toast(err.message); b.disabled = false; b.textContent = 'Analizar este entreno'; }
+  });
 }
 
 function verSesion(e) {
@@ -1131,7 +1219,7 @@ duracion_min en minutos decimales (tiempo en movimiento si aparece). Usa null si
       const guardada = csv('entrenos').rows.filter(r => r.fecha === f).at(-1);
       if (guardada && cfg.gemini) {
         $('#e-save').disabled = true; $('#e-save').innerHTML = '<i class="spinner"></i> Analizando el entreno…';
-        try { await analizarSesion(guardada); runTab = 'resumen'; render(); verSesion(guardada); return; }
+        try { await analizarSesion(guardada); runTab = 'resumen'; cerrarSheet(); render(); inmersion(guardada); return; }
         catch (err) { toast(err.message); }
       }
       cerrarSheet(); toast('Entreno guardado ✓'); render();
@@ -1140,12 +1228,23 @@ duracion_min en minutos decimales (tiempo en movimiento si aparece). Usa null si
 }
 
 // ---------- navegación ----------
-function irA(sec) {
+// Símbolos de la cabecera (sustituyen al nombre de la sección).
+const SEC_ICON = {
+  nutri: '<svg viewBox="0 0 48 48" class="sec-ico"><path d="M24 15c-2.5-4.5-8.5-6-12.5-3C6.5 16 7 25 11 32c2.6 4.6 6 8 9 8 1.6 0 2.6-.8 4-.8s2.4.8 4 .8c3 0 6.4-3.4 9-8 4-7 4.5-16-.5-20-4-3-10-1.5-12.5 3z"/><path d="M24 15c0-4 1.5-7.5 4-9"/><path d="M27 9c3.5-3 7.5-3 9.5-1.5-1.5 3.5-5.5 5-9.5 1.5z" class="fill"/></svg>',
+  run: '<svg viewBox="0 0 48 48" class="sec-ico"><circle cx="31" cy="8" r="4" class="fill"/><path d="M28 15l-6 12M22 27l7 5-3 11M22 27l-8 4-5-2M16 20l7-5 7 3 4 6"/><path d="M3 17h7M1 23h7M4 29h5" class="speed"/></svg>',
+  ajustes: '<svg viewBox="0 0 24 24" class="sec-ico"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+};
+
+function irA(sec, dir) {
   seccion = sec;
   document.body.dataset.sec = sec;
   ['nutri', 'run', 'ajustes'].forEach(s => ($(`#v-${s}`).hidden = s !== sec));
+  if (dir) { const v = $(`#v-${sec}`); v.classList.remove('slide-left', 'slide-right'); void v.offsetWidth; v.classList.add('slide-' + dir); }
   $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === sec));
-  $('#titulo').textContent = { nutri: 'Nutrición', run: 'Running', ajustes: 'Ajustes' }[sec];
+  const nombre = { nutri: 'Nutrición', run: 'Running', ajustes: 'Ajustes' }[sec];
+  $('#titulo').innerHTML = SEC_ICON[sec];
+  $('#titulo').setAttribute('aria-label', nombre);
+  $('#titulo').classList.remove('pop'); void $('#titulo').offsetWidth; $('#titulo').classList.add('pop');
   document.querySelector('meta[name=theme-color]').content = (matchMedia('(prefers-color-scheme: dark)').matches ? '#000000' : getComputedStyle(document.body).getPropertyValue('--acc').trim() || '#ff6a00');
   window.scrollTo(0, 0);
   if (sec === 'ajustes' || Object.keys(D).length) render();
