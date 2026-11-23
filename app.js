@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '1.8.0';
+const VERSION = '1.9.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -461,7 +461,7 @@ function renderRun(hoy, dir) {
     const i = +c.dataset.i;
     if (i !== ruedaIdx) { ruedaIdx = i; colocarRueda(); } else c.classList.toggle('flipped');
   }));
-  $('#btn-prox')?.addEventListener('click', () => { verProx = true; renderRun(hoy); });
+  $('#btn-prox')?.addEventListener('click', ev => abrirProximas(pend.map(tarjeta).join(''), pend.length, ev));
   if (hoyE) {
     $('#logro')?.addEventListener('click', ev => {
       if (aHoy) return inmersion(hoyE, ev);
@@ -715,6 +715,51 @@ const IC = {
 };
 const ic = k => `<svg viewBox="0 0 24 24" class="im-ic">${IC[k]}</svg>`;
 
+// Abre/cierra la capa negra con la animación de círculo desde el punto tocado.
+function abrirCapa(ev, clase, html) {
+  const ov = $('#inmersion');
+  ov.style.setProperty('--x', (ev?.clientX ?? innerWidth / 2) + 'px');
+  ov.style.setProperty('--y', (ev?.clientY ?? innerHeight / 3) + 'px');
+  ov.className = clase;
+  ov.ontouchstart = ov.ontouchend = ov.onwheel = null;
+  ov.innerHTML = html;
+  ov.hidden = false;
+  document.body.classList.add('inmerso');
+  requestAnimationFrame(() => requestAnimationFrame(() => ov.classList.add('open')));
+  const cerrar = () => {
+    ov.classList.remove('open');
+    setTimeout(() => { ov.hidden = true; ov.innerHTML = ''; document.body.classList.remove('inmerso'); }, 560);
+  };
+  $('#im-close').addEventListener('click', cerrar);
+  return cerrar;
+}
+
+// Próximas sesiones a pantalla completa: solo la noria.
+function abrirProximas(tarjetasHTML, n, ev) {
+  ruedaIdx = 0; ruedaN = n;
+  abrirCapa(ev, 'im-prox', `
+    <button class="im-close" id="im-close" aria-label="Cerrar">${ICON_X}</button>
+    <div class="prox-wrap">
+      <div class="rueda" id="rueda">${tarjetasHTML}
+        ${n > 1 ? `<div class="rueda-dots">${Array.from({ length: n }, (_, i) => `<i data-d="${i}"></i>`).join('')}</div>` : ''}
+      </div>
+      ${n > 1 ? '<p class="rueda-hint">Desliza ↑↓ · toca para ver la sesión</p>' : ''}
+    </div>`);
+  colocarRueda();
+  $$('#rueda .next').forEach(c => c.addEventListener('click', () => {
+    const i = +c.dataset.i;
+    if (i !== ruedaIdx) { ruedaIdx = i; colocarRueda(); } else c.classList.toggle('flipped');
+  }));
+  const ov = $('#inmersion');
+  let y0 = 0, x0 = 0, bloqueo = 0;
+  ov.ontouchstart = e => { y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; };
+  ov.ontouchend = e => {
+    const dy = e.changedTouches[0].clientY - y0, dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dy) > 35 && Math.abs(dy) > Math.abs(dx)) girarRueda(dy < 0 ? 1 : -1);
+  };
+  ov.onwheel = e => { if (Date.now() < bloqueo) return; e.preventDefault(); bloqueo = Date.now() + 350; girarRueda(e.deltaY > 0 ? 1 : -1); };
+}
+
 function inmersion(e, ev) {
   const ov = $('#inmersion'), a = analisisDe(e), t = tipoSesion(`${e.tipo} ${e.notas}`);
   const x = ev?.clientX ?? innerWidth / 2, y = ev?.clientY ?? innerHeight / 3;
@@ -726,6 +771,7 @@ function inmersion(e, ev) {
   const stat = (k, lbl, v) => v ? `<div class="im-stat">${ic(k)}<b>${esc(v)}</b><span>${lbl}</span></div>` : '';
   ov.style.setProperty('--x', x + 'px'); ov.style.setProperty('--y', y + 'px');
   ov.className = `t-${t}`;
+  ov.ontouchstart = ov.ontouchend = ov.onwheel = null;
   ov.innerHTML = `
     <button class="im-close" id="im-close" aria-label="Cerrar">${ICON_X}</button>
     <div class="im-content">
@@ -1230,7 +1276,8 @@ duracion_min en minutos decimales (tiempo en movimiento si aparece). Usa null si
 // ---------- navegación ----------
 // Símbolos de la cabecera (sustituyen al nombre de la sección).
 const SEC_ICON = {
-  nutri: '<svg viewBox="0 0 48 48" class="sec-ico"><path d="M24 15c-2.5-4.5-8.5-6-12.5-3C6.5 16 7 25 11 32c2.6 4.6 6 8 9 8 1.6 0 2.6-.8 4-.8s2.4.8 4 .8c3 0 6.4-3.4 9-8 4-7 4.5-16-.5-20-4-3-10-1.5-12.5 3z"/><path d="M24 15c0-4 1.5-7.5 4-9"/><path d="M27 9c3.5-3 7.5-3 9.5-1.5-1.5 3.5-5.5 5-9.5 1.5z" class="fill"/></svg>',
+  // Plato visto desde arriba con tenedor (izq.) y cuchillo (dcha.)
+  nutri: '<svg viewBox="0 0 48 48" class="sec-ico"><circle cx="24" cy="24" r="12.5"/><circle cx="24" cy="24" r="7.5" class="thin"/><path d="M3.5 6v7M6.5 6v7M9.5 6v7M3.5 13c0 2.5 1.3 3.5 3 3.5s3-1 3-3.5M6.5 16.5V42"/><path d="M44.5 6c-3 2.5-4.5 8-4.5 15h4.5M44.5 6v36"/></svg>',
   run: '<svg viewBox="0 0 48 48" class="sec-ico"><circle cx="31" cy="8" r="4" class="fill"/><path d="M28 15l-6 12M22 27l7 5-3 11M22 27l-8 4-5-2M16 20l7-5 7 3 4 6"/><path d="M3 17h7M1 23h7M4 29h5" class="speed"/></svg>',
   ajustes: '<svg viewBox="0 0 24 24" class="sec-ico"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
 };

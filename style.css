@@ -617,3 +617,16 @@ main, .top { transition: transform .5s, filter .5s; }
 .im-mot { color: #bdbdbd; font-size: 14px; }
 .im-ok { color: #39ff88; font-weight: 700; }
 .im-btn { width: 100%; padding: 14px; border-radius: 16px; background: var(--im); color: #000; font-weight: 800; }
+
+/* ===== v1.9: próximas sesiones en inmersión + símbolo de nutrición ===== */
+.sec-ico .thin { stroke-width: 1.8; opacity: .6; }
+#inmersion.im-prox { display: grid; grid-template-rows: auto 1fr; overflow: hidden; touch-action: none; }
+.prox-wrap { display: grid; align-content: center; gap: 14px; max-width: 520px; width: 100%; margin: 0 auto; padding: 0 12px 40px; }
+#inmersion .prox-wrap > * { opacity: 0; transform: translateY(18px); }
+#inmersion.open .prox-wrap > * { animation: imIn .55s cubic-bezier(.22,1,.36,1) .3s forwards; }
+#inmersion .rueda { height: 300px; }
+#inmersion .rueda .next .face { background: #0d0d0d; border-color: #222; color: #8a8a8a; }
+#inmersion .rueda .next.pos0 .face { color: #fff; border-color: transparent; }
+#inmersion .rueda-dots i { background: #2a2a2a; }
+#inmersion .rueda-dots i.on { background: #fc4c02; }
+#inmersion .rueda-hint { color: #8a8a8a; margin-top: 0; }
