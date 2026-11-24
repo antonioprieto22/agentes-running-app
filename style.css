@@ -799,3 +799,19 @@ body[data-sec="ajustes"] #btn-ajustes { background: rgba(255,255,255,.4); }
 .ficha.cal { border-color: rgba(255,180,58,.35); }
 .ficha.enf { border-color: rgba(79,195,255,.35); }
 .ficha.fc  { border-color: rgba(255,92,122,.35); }
+
+/* ===== v2.3.2: botón "Comienza tu entrenamiento" protagonista + cifras moradas en fuerza ===== */
+.btn-negro.tb-acceso {
+  padding: 20px 20px; gap: 16px; border-radius: 26px; min-height: 92px;
+  background: radial-gradient(140% 120% at 0% 0%, #4c1d95 0%, #2a0b52 45%, #0b0414 100%);
+  border: 1px solid rgba(139, 92, 246, .35); box-shadow: 0 10px 28px var(--f-glow);
+}
+.btn-negro.tb-acceso b { font-size: 21px; letter-spacing: -.01em; }
+.btn-negro.tb-acceso .bn-sym { width: 58px; height: 58px; border-radius: 50%; font-size: 24px; padding-left: 4px;
+  background: #fff; color: #2a0b52; box-shadow: 0 0 0 6px rgba(255,255,255,.08); animation: latido 2.2s ease-in-out infinite; }
+.btn-negro.tb-acceso .bn-arrow { font-size: 34px; color: #c4b5fd; }
+@keyframes latido { 50% { box-shadow: 0 0 0 12px rgba(255,255,255,0); } }
+
+/* Repeticiones de fuerza en morado (gana a la regla general naranja) */
+.t-fuerza .fichas .ficha b, .fz-una .fichas .ficha b, #inmersion.im-fz .fichas .ficha b { color: var(--f-txt) !important; }
+.fz-una .ficha.fin, .t-fuerza .ficha.fin { border-color: rgba(139, 92, 246, .45); }
