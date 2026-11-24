@@ -6,7 +6,9 @@
 /* ---------- Tokens ---------- */
 :root {
   --bg: #f6f5f3; --card: #ffffff; --text: #1c1917; --muted: #78716c; --line: #e7e5e4;
-  --good: #15803d; --bad: #b91c1c;
+  /* Un solo verde y un solo rojo en toda la app (familia iOS: el verde del ✅) */
+  --ok: #34c759; --ok2: #248a3d; --ko: #ff3b30; --ko2: #c4231a;
+  --good: #248a3d; --bad: #c4231a;
   /* Medidas comunes */
   --r-xl: 26px; --r-lg: 20px; --r-md: 14px; --r-sm: 12px;
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -23,7 +25,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #000000; --card: #0b0b0c; --text: #f5f5f4; --muted: #8f8a86; --line: #1c1c1f;
-    --good: #39ff88; --bad: #ff4d6d;
+    --good: #34c759; --bad: #ff453a;
     --n-soft: #00102a; --n-ink: #9cc3ff; --n-glow: rgba(47, 123, 255, .22);
     --r-soft: #1d0c00; --r-ink: #ffb27a; --r-glow: rgba(252, 76, 2, .22);
     --f-soft: #0d0717; --f-ink: #b9a6e0; --f-glow: rgba(124, 58, 237, .14); --f-txt: #a68bd8;
@@ -84,7 +86,7 @@ ol.steps { padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
 .li.fill { fill: currentColor; stroke: none; }
 .ti-svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; display: block; }
 .val-ic { display: inline-grid; vertical-align: -3px; }
-.val-ic.ok { color: var(--good); } .val-ic.mid { color: #eab308; } .val-ic.bad { color: #ff5c7a; }
+.val-ic.ok { color: var(--good); } .val-ic.mid { color: #eab308; } .val-ic.bad { color: var(--bad); }
 
 /* ---------- Cabecera ---------- */
 .top {
@@ -234,7 +236,9 @@ body[data-sec="ajustes"] .fab { display: none; }
 /* Listas */
 .item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
 .item .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item .del { color: var(--muted); padding: 4px; }
+/* Área de toque de 40 px (el icono sigue igual de discreto) */
+.item .del { color: var(--muted); padding: 11px; margin: -11px -11px -11px -4px; border-radius: 50%; }
+.item .del:active { background: var(--soft); }
 .item .del svg { width: 18px; height: 18px; }
 .session { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
 .session:first-of-type { border-top: 0; }
@@ -280,8 +284,8 @@ body[data-sec="ajustes"] .fab { display: none; }
 .fc-back { transform: rotateY(180deg); }
 .fc-front { display: grid; align-content: center; }
 .balance { display: grid; justify-items: center; gap: 8px; padding: 26px 18px 20px; border-radius: 28px; color: #fff; text-align: center; animation: pop .5s cubic-bezier(.2,.9,.3,1.2); min-height: 100%; width: 100%; }
-.balance.def { background: radial-gradient(120% 90% at 50% 0%, #34d399 0%, #059669 55%, #064e3b 100%); box-shadow: 0 10px 30px rgba(16,185,129,.25); }
-.balance.sup { background: radial-gradient(120% 90% at 50% 0%, #fb7185 0%, #e11d48 55%, #4c0519 100%); box-shadow: 0 10px 30px rgba(225,29,72,.25); }
+.balance.def { background: radial-gradient(120% 90% at 50% 0%, #5ee07f 0%, var(--ok) 50%, #14532d 100%); box-shadow: 0 10px 30px rgba(52,199,89,.25); }
+.balance.sup { background: radial-gradient(120% 90% at 50% 0%, #ff7a70 0%, var(--ko) 50%, #6b0f0a 100%); box-shadow: 0 10px 30px rgba(255,59,48,.25); }
 .bal-label { font-size: 13px; text-transform: uppercase; letter-spacing: .14em; opacity: .9; font-weight: 700; }
 .bal-num { font-size: 68px; font-weight: 900; letter-spacing: -.05em; line-height: 1; }
 .bal-num small { font-size: 18px; font-weight: 600; margin-left: 4px; letter-spacing: 0; opacity: .85; }
@@ -338,7 +342,7 @@ body[data-sec="ajustes"] .fab { display: none; }
 .pend-row b { display: block; text-transform: capitalize; font-size: 14px; }
 .pend-row small { color: var(--muted); font-size: 12px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
 .pend-row .grow { min-width: 0; }
-.pend-row .del { color: var(--muted); padding: 4px; }
+.pend-row .del { color: var(--muted); padding: 11px; margin: -11px -11px -11px -4px; border-radius: 50%; }
 .pend-row .del svg { width: 18px; height: 18px; }
 .pend .muted { margin-top: 6px; font-size: 12px; }
 .foto-ctx { margin: 0 0 12px; font-size: 14px; }
@@ -700,7 +704,7 @@ body.hist-on { overflow: hidden; }
 @keyframes bob { 50% { transform: translateY(3px); } }
 
 /* Verde del ✅ clásico (verde iOS) y rojo a juego */
-.hist, .hist-cta { --ok: #34c759; --ok2: #248a3d; --ko: #ff3b30; --ko2: #c4231a; }
+@@@END
 .hb-sem, .hm-mes { flex: 0 0 100%; scroll-snap-align: center; padding: 4px 16px 6px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .hb-sem header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 2px; }
 .hb-sem header b { display: block; font-size: 16px; font-weight: 800; }
@@ -786,3 +790,9 @@ body.hist-on { overflow: hidden; }
   box-shadow: 0 0 6px rgba(252, 76, 2, .45), inset 0 -1px 0 rgba(252, 76, 2, .15); transition: width 1s linear; }
 .recup.listo { background: linear-gradient(135deg, #5ee07f, #34c759); color: #04210d; box-shadow: 0 6px 18px rgba(52, 199, 89, .28); }
 .recup.listo .rc-ic svg { animation: none; }
+
+/* ---------- Aviso de conexión (cápsula discreta arriba) ---------- */
+.red-pill { position: fixed; left: 50%; top: calc(10px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 55;
+  padding: 6px 14px; border-radius: 99px; font-size: 12px; font-weight: 600; color: #fff; background: rgba(28, 25, 23, .88);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 4px 14px rgba(0,0,0,.2); animation: tIn .35s cubic-bezier(.2,.9,.3,1.2); white-space: nowrap; }
+@media (prefers-color-scheme: dark) { .red-pill { background: rgba(40, 40, 44, .92); border: 1px solid var(--line); } }

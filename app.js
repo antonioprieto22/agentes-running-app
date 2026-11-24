@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.12.0';
+const VERSION = '2.13.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -134,9 +134,54 @@ async function getFile(path) {
   if (et) etags.set(path, { etag: et, ...out }); else etags.delete(path);
   return out;
 }
+// Escritura con cola sin conexión: si no hay red, el cambio se aplica ya en el móvil y se sube al volver la conexión.
+// Al subir, cada cambio se reaplica sobre la versión fresca de GitHub (fn transforma el texto), así no se duplica ni se pisa nada.
+const colaRed = [];
+const esErrorRed = e => e instanceof TypeError || /failed to fetch|networkerror|load failed|network/i.test(e?.message || '');
 async function modify(key, fn, message) {
+  if (!navigator.onLine) return encolar(key, fn, message);
+  try { return await modifyRed(key, fn, message); }
+  catch (e) { if (esErrorRed(e)) return encolar(key, fn, message); throw e; }
+}
+function encolar(key, fn, message) {
+  const prev = D[key] || { text: '', sha: undefined };
+  let text = fn(prev.text);
+  if (!text.endsWith('\n')) text += '\n';
+  D[key] = { ...prev, text };
+  colaRed.push({ key, fn, message });
+  estadoRed();
+}
+let vaciando = null;
+function vaciarCola() {
+  if (vaciando || !colaRed.length || !navigator.onLine) return vaciando || Promise.resolve();
+  vaciando = (async () => {
+    estadoRed('Sincronizando…');
+    const frescas = new Set();
+    try {
+      while (colaRed.length && navigator.onLine) {
+        const op = colaRed[0];
+        await modifyRed(op.key, op.fn, op.message, !frescas.has(op.key));   // la 1.ª de cada archivo parte de la versión del servidor
+        frescas.add(op.key); colaRed.shift();
+      }
+      if (!colaRed.length) toast('Cambios sincronizados ✓');
+    } catch (e) { if (!esErrorRed(e)) { toast(e.message); colaRed.length = 0; } }
+    finally { vaciando = null; estadoRed(); render(); }
+  })();
+  return vaciando;
+}
+function estadoRed(texto) {
+  let el = $('#red');
+  if (!el) { el = document.createElement('div'); el.id = 'red'; el.className = 'red-pill'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+  const n = colaRed.length;
+  const msg = texto || (!navigator.onLine ? `Sin conexión${n ? ` · ${n} ${n === 1 ? 'cambio pendiente' : 'cambios pendientes'}` : ''}` : n ? `${n} ${n === 1 ? 'cambio' : 'cambios'} por subir` : '');
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+window.addEventListener('online', () => { estadoRed(); vaciarCola(); });
+window.addEventListener('offline', () => estadoRed());
+async function modifyRed(key, fn, message, fresco = false) {
   for (let intento = 0; intento < 3; intento++) {
-    const f = intento === 0 && D[key] ? D[key] : await getFile(FILES[key]);
+    const f = intento === 0 && D[key] && !fresco ? D[key] : await getFile(FILES[key]);
     let text = fn(f.text);
     if (!text.endsWith('\n')) text += '\n';
     const res = await api(FILES[key], {
@@ -164,6 +209,8 @@ let balVolteado = false;    // día cerrado: se ve la rueda (true) o el balance 
 
 async function cargar() {
   if (!cfg.token) { irA('ajustes'); return; }
+  if (colaRed.length) await vaciarCola();       // primero se suben los cambios hechos sin conexión
+  if (colaRed.length) { estadoRed(); return; }   // sigue sin red: no se pisan los datos locales
   const b = $('#btn-sync'); b.classList.add('spin');
   try {
     const pares = await Promise.all(Object.entries(FILES).map(async ([k, p]) =>
@@ -1654,7 +1701,7 @@ function renderAjustes() {
     <div class="card stack">
       <button class="btn ghost" id="c-install" hidden>Instalar en la pantalla de inicio</button>
       <a class="btn ghost" href="${CLAUDE_URL}" target="_blank" rel="noopener">Abrir el agente (Claude Code)</a>
-      <p class="muted">APEX · versión ${VERSION}</p>
+      <p class="muted">APEX · versión ${VERSION} · ${ultimaCarga ? `datos actualizados ${haceCuanto(ultimaCarga)}` : 'sin datos cargados'}${colaRed.length ? ` · ${colaRed.length} cambios por subir` : ''}</p>
     </div>`;
   $('#c-save').addEventListener('click', () => {
     const gem = $('#c-gem').value.trim();
@@ -2197,8 +2244,13 @@ duracion_min en minutos decimales (tiempo en movimiento si aparece). recuperacio
   });
 }
 
+const haceCuanto = t => { const m = Math.round((Date.now() - t) / 6e4); return m < 1 ? 'ahora mismo' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} d`; };
+// Vibración breve (Android): sensación de app nativa. iOS la ignora.
+const vibrar = (ms = 10) => { try { navigator.vibrate?.(ms); } catch { /* sin vibración */ } };
+
 // ---------- navegación ----------
 function irA(sec, dir) {
+  if (sec !== seccion && !navPop) vibrar(8);
   seccion = sec;
   document.body.dataset.sec = sec;
   ['nutri', 'run', 'fuerza', 'ajustes'].forEach(s => ($(`#v-${s}`).hidden = s !== sec));
@@ -2225,6 +2277,7 @@ function toast(msg) {
   const tipo = /✓|guardad|actualizad|conectado|borrado|cerrado/i.test(msg) ? 'ok'
     : /error|no válid|no encuentro|falló|límite|saturado|sin conexión|conflicto|indica|pon al menos/i.test(msg) ? 'err' : 'info';
   t.className = 'toast ' + tipo;
+  if (tipo === 'ok') vibrar(18); else if (tipo === 'err') vibrar([12, 60, 12]);
   t.innerHTML = `${{ ok: ICO.ok, err: ICO.aviso, info: ICO.medio }[tipo]}<span>${esc(String(msg).replace(/\s*✓$/, ''))}</span>`;
   t.hidden = false; t.classList.remove('sale'); void t.offsetWidth; t.classList.add('entra');
   clearTimeout(toastT); toastT = setTimeout(() => { t.classList.add('sale'); setTimeout(() => (t.hidden = true), 250); }, 3600);
@@ -2249,13 +2302,24 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 
 gestos();
 irA(location.hash === '#run' ? 'run' : 'nutri');
-// Pantalla de carga: 3 s (lo que tarda la rueda) mientras se cargan los datos por detrás.
-const splashFin = new Promise(r => setTimeout(r, 3000));
+// Pantalla de carga: dura lo que tardan los datos (mínimo 1,1 s para que se lea APEX; máximo 4 s).
+// Al estar listos, la rueda se completa de golpe y la pantalla se desvanece.
+const splashMin = new Promise(r => setTimeout(r, 1100));
 const cargaInicial = cargar();
-Promise.all([splashFin, cargaInicial.catch(() => {})]).then(() => {
+const splashMax = new Promise(r => setTimeout(r, 4000));
+Promise.race([Promise.all([splashMin, cargaInicial.catch(() => {})]), splashMax]).then(async () => {
   const s = $('#splash'); if (!s) return;
+  const arco = $('.sp-arc');
+  if (arco) {   // se congela donde va y se completa desde ahí
+    arco.style.strokeDashoffset = getComputedStyle(arco).strokeDashoffset;
+    arco.style.animation = 'spGlow 1.2s ease-in-out infinite alternate';
+    void arco.getBoundingClientRect();
+    arco.style.transition = 'stroke-dashoffset .3s ease-out'; arco.style.strokeDashoffset = '0';
+    await dormir(320);
+  }
   s.classList.add('fuera');
   setTimeout(() => s.remove(), 500);
+  estadoRed();
   // Reanima la rueda/contadores ahora que la pantalla es visible.
   if (seccion === 'nutri' || seccion === 'run') render();
   if (location.hash === '#comida' && cfg.token) abrirSheet();
