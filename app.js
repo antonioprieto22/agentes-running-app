@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.14.1';
+const VERSION = '2.14.2';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -773,12 +773,8 @@ function renderRun(hoy, dir) {
 
   // Entreno de hoy hecho → "Logro del día" (principal). Si no, aviso del análisis más reciente.
   const hoyE = r.hoyE.at(-1), aHoy = hoyE && analisisDe(hoyE);
-  // Recuperación: se fusiona con el análisis (o el logro) si es de esa misma sesión; si no, va en su caja.
-  const rc = recupActual();
-  const rcHoy = rc && hoyE && rc.fecha === hoyE.fecha, rcUlt = rc && !hoyE && ultima && aUlt && rc.fecha === ultima.fecha;
   let chip = '';
-  if (hoyE) chip = logroHTML(hoyE, aHoy, fallidos.get(refDe(hoyE)), rcHoy ? rc : null);
-  else if (rcUlt) chip = analisisRecupHTML(aUlt, rc);
+  if (hoyE) chip = logroHTML(hoyE, aHoy, fallidos.get(refDe(hoyE)));
   else if (ultima && aUlt) chip = `<button class="analysis-chip ${valClase(aUlt)}" id="chip-an">${valIcon(aUlt)} <span>${esc(tituloAn(aUlt))}</span></button>`;
   else if (ultima && !cfg.gemini) chip = `<button class="analysis-chip" id="chip-an">${ICO.llave}<span>Añade la clave de Gemini para analizar tus entrenos</span></button>`;
   else if (ultima && fallo) chip = `<button class="analysis-chip mid" id="chip-an">${ICO.aviso}<span>${esc(fallo)} · <u>Reintentar</u></span></button>`;
@@ -787,7 +783,7 @@ function renderRun(hoy, dir) {
   // Con el logro del día hecho, la noria se esconde tras un botón negro.
   const ocultarRueda = hoyE && ruedaN && !verProx;
   const sig = pend[0], dSig = sig && new Date(sig.fecha + 'T12:00:00Z');
-  body.innerHTML = `${chip}${rcHoy || rcUlt ? '' : recuperacionHTML(rc)}
+  body.innerHTML = `${chip}${recuperacionHTML()}
     ${ocultarRueda ? `<button class="btn-negro" id="btn-prox">
         <span class="bn-sym">${SIMBOLO[tipoSesion(`${sig.sesion} ${sig.detalle}`)]}</span>
         <span class="grow"><b>Próximas sesiones</b><small>${sig.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[dSig.getUTCDay()]} · ${esc(sig.sesion)}</small></span>
@@ -861,22 +857,14 @@ function recupActual() {
   const fin = tsMadrid(r.hasta), ini = fin - (num(r.horas) || 24) * 36e5;
   return ahoraTs() > fin + 6 * 36e5 ? null : { fecha: r.fecha, ini, fin };
 }
-// Atributos que convierten una caja en contador (el color «listo» se aplica a la caja entera).
 const recupAttrs = rc => `data-ini="${rc.ini}" data-fin="${rc.fin}"`;
 // Franja del contador: reloj de arena + 00:00:00 + barra.
 const recupFranja = () => `<span class="rc-ic"><svg viewBox="0 0 24 24"><path d="M7 3.5h10M7 20.5h10M8 3.5c0 4.5 8 4.5 8 8.5s-8 4-8 8.5M16 3.5c0 4.5-8 4.5-8 8.5s8 4 8 8.5"/></svg></span>
     <span class="grow"><small>Recuperación</small><b class="rc-t" id="rc-t">--:--:--</b></span>
     <i class="rc-bar"><em id="rc-bar"></em></i>`;
-// Caja suelta (cuando la recuperación no es de la sesión cuyo análisis se muestra).
+// Caja amarilla del contador, justo debajo del análisis.
 function recuperacionHTML(rc = recupActual()) {
   return rc ? `<div class="recup js-recup" ${recupAttrs(rc)}>${recupFranja()}</div>` : '';
-}
-// Análisis + contador en una misma caja: arriba el análisis (su color), abajo el contador (amarillo). Al tocar, abre el análisis.
-function analisisRecupHTML(a, rc) {
-  return `<button class="an-recup js-recup ${valClase(a)}" id="chip-an" ${recupAttrs(rc)}>
-    <span class="ar-top">${valIcon(a)}<span class="grow">${esc(tituloAn(a))}</span><span class="ar-ver">Ver análisis ›</span></span>
-    <span class="ar-bot">${recupFranja()}</span>
-  </button>`;
 }
 let recupTimer = 0;
 function arrancarRecuperacion() {
@@ -1297,11 +1285,10 @@ const SIMBOLO = {
   carrera: '<svg viewBox="0 0 48 48" class="sym-svg"><path class="ln" d="M16 4l8 14 8-14"/><circle class="ln" cx="24" cy="30" r="11"/><path d="M24 23l2 5h5l-4 3 1.5 5-4.5-3-4.5 3 1.5-5-4-3h5z"/></svg>',
 };
 
-function logroHTML(e, a, fallo, rc) {
+function logroHTML(e, a, fallo) {
   const t = tipoSesion(`${e.tipo} ${e.notas}`);
   // Solo el resumen; ritmo, FC, puntos fuertes y mejoras aparecen al tocar la tarjeta.
-  // Con recuperación de esta sesión, el contador va en la parte inferior de la tarjeta.
-  return `<button class="logro t-${t} ${a ? valClase(a) : ''} ${rc ? 'js-recup con-recup' : ''}" id="logro" ${rc ? recupAttrs(rc) : ''}>
+  return `<button class="logro t-${t} ${a ? valClase(a) : ''}" id="logro">
     <span class="logro-tag">${ICO.medalla}Logro del día</span>
     <span class="sym big">${SIMBOLO[t]}</span>
     <b class="logro-km"><span id="logro-km">0</span><small>km</small></b>
@@ -1309,7 +1296,6 @@ function logroHTML(e, a, fallo, rc) {
     : !cfg.gemini ? `<span class="logro-val">${ICO.llave}Añade la clave de Gemini para el análisis</span>`
     : fallo ? `<span class="logro-val">${ICO.aviso}${esc(fallo)} · <u>Reintentar</u></span>`
     : '<span class="logro-val"><i class="spinner"></i> Analizando tu sesión…</span>'}
-    ${rc ? `<span class="logro-recup">${recupFranja()}</span>` : ''}
   </button>`;
 }
 
