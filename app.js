@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.6.0';
+const VERSION = '2.7.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -19,7 +19,31 @@ const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg', 'fuerza', '
 const CLAUDE_URL = 'https://claude.ai/code';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const COMIDAS = ['desayuno', 'almuerzo', 'comida', 'merienda', 'cena', 'snack'];
-const EMOJI = { desayuno: '☕', almuerzo: '🥐', comida: '🍽️', merienda: '🍎', cena: '🌙', snack: '🍫' };
+// Iconos de línea (sustituyen a los emojis)
+const L = p => `<svg viewBox="0 0 24 24" class="li">${p}</svg>`;
+const EMOJI = {
+  desayuno: L('<path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16M8 3.5v2.5M12 3.5v2.5"/>'),
+  almuerzo: L('<path d="M4 15c0-4 3.6-7 8-7s8 3 8 7z"/><path d="M3 15h18M8 11.5l1 3.5M12 10.5v4.5M16 11.5l-1 3.5"/>'),
+  comida: L('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3.5"/><path d="M2.5 4v5M2.5 9v11M21.5 4c-1.5 1-2 3.5-2 6h2M21.5 4v16"/>'),
+  merienda: L('<path d="M12 7c-1.5-2.5-6-3-7.5 1C3 12 6 20 9.5 20c1 0 1.5-.5 2.5-.5s1.5.5 2.5.5C18 20 21 12 19.5 8 18 4 13.5 4.5 12 7z"/><path d="M12 7c0-2 1-3.5 2.5-4"/>'),
+  cena: L('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'),
+  snack: L('<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M5 9.5h14M5 14.5h14M12 4v16"/>'),
+};
+const ICO = {
+  medalla: L('<circle cx="12" cy="15" r="5"/><path d="M8.5 3.5 11 10M15.5 3.5 13 10M7 3.5h3.5M13.5 3.5H17"/>'),
+  pesa: L('<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>'),
+  meta: L('<path d="M5 21V4M5 4h11l-2 3.5L16 11H5"/>'),
+  llave: L('<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/>'),
+  aviso: L('<path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.5h.01"/>'),
+  ok: L('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16.5 9.5"/>'),
+  medio: L('<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>'),
+  mejora: L('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z"/>'),
+  reloj: L('<rect x="7" y="6.5" width="10" height="11" rx="3"/><path d="M9 6.5l1-3.5h4l1 3.5M9 17.5l1 3.5h4l1-3.5M12 10v2.2l1.3 1"/>'),
+  trofeo: L('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M9 20h6"/>'),
+  play: '<svg viewBox="0 0 24 24" class="li fill"><path d="M8 5.5v13l10.5-6.5z"/></svg>',
+  pausa: '<svg viewBox="0 0 24 24" class="li fill"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>',
+  saltar: '<svg viewBox="0 0 24 24" class="li fill"><path d="M5 5.5v13l9-6.5zM16 5.5h3v13h-3z"/></svg>',
+};
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -90,11 +114,17 @@ async function api(path, opts = {}) {
   if (res.status === 404) throw new Error(`No encuentro ${path}: revisa usuario/repo y permisos de la clave`);
   return res;
 }
+const etags = new Map();   // ruta → { etag, text, sha } (solo en memoria)
 async function getFile(path) {
-  const res = await api(`${path}?ref=main&t=${Date.now()}`);
+  const prev = etags.get(path);
+  const res = await api(`${path}?ref=main`, prev ? { headers: { 'If-None-Match': prev.etag } } : {});
+  if (res.status === 304 && prev) return { text: prev.text, sha: prev.sha };   // sin cambios: no se descarga
   if (!res.ok) throw new Error(`GitHub ${res.status} al leer ${path}`);
   const j = await res.json();
-  return { text: b64dec(j.content), sha: j.sha };
+  const out = { text: b64dec(j.content), sha: j.sha };
+  const et = res.headers.get('ETag');
+  if (et) etags.set(path, { etag: et, ...out }); else etags.delete(path);
+  return out;
 }
 async function modify(key, fn, message) {
   for (let intento = 0; intento < 3; intento++) {
@@ -105,7 +135,7 @@ async function modify(key, fn, message) {
       method: 'PUT',
       body: JSON.stringify({ message: `app: ${message}`, content: b64enc(text), sha: f.sha, branch: 'main' }),
     });
-    if (res.ok) { const j = await res.json(); D[key] = { text, sha: j.content.sha }; return; }
+    if (res.ok) { const j = await res.json(); D[key] = { text, sha: j.content.sha }; etags.delete(FILES[key]); return; }
     if (res.status !== 409 && res.status !== 422) throw new Error(`GitHub ${res.status} al guardar`);
     D[key] = null;
   }
@@ -136,18 +166,23 @@ async function cargar() {
   } catch (e) { toast(e.message); if (!Object.keys(D).length) irA('ajustes'); }
   finally { b.classList.remove('spin'); }
 }
-function perfil() {
+function perfil() { return memoizar('perfil', D.perfil?.text || '', leerPerfil); }
+function leerPerfil() {
   const o = {};
   for (const m of (D.perfil?.text || '').matchAll(/^\s*-\s*([a-z_]+)\s*:\s*(.*)$/gim)) o[m[1].toLowerCase()] = m[2].replace(/\s+#.*$/, '').trim();
   return o;
 }
-function planRows() {
+function planRows() { return memoizar('plan', D.plan?.text || '', leerPlan); }
+function leerPlan() {
   return (D.plan?.text || '').split(/\r?\n/).filter(l => /^\|\s*\d{4}-\d{2}-\d{2}/.test(l)).map(l => {
     const [fecha, dia, sesion, detalle] = l.split('|').slice(1).map(s => s.trim());
     return { fecha, dia, sesion, detalle };
   });
 }
-const csv = k => parseCsv(D[k]?.text || '');
+// Memo: cada archivo se procesa una vez y se reutiliza mientras su texto no cambie.
+const memo = new Map();
+const memoizar = (clave, texto, fn) => { const m = memo.get(clave); if (m && m.t === texto) return m.v; const v = fn(texto); memo.set(clave, { t: texto, v }); return v; };
+const csv = k => memoizar('csv:' + k, D[k]?.text || '', parseCsv);
 
 // ---------- cálculos ----------
 function nutriDia(f) {
@@ -186,7 +221,7 @@ function render() {
     const lugar = (p.objetivo_carrera.match(/ de ([^~(]+?) en/) || [])[1] || p.objetivo_carrera;
     const marca = (p.objetivo_carrera.match(/~\s*([\dh:']+)/) || [])[1];
     const dias = /^\d{4}/.test(p.fecha_objetivo || '') ? diasEntre(fecha, p.fecha_objetivo) : null;
-    g.textContent = `🏁 ${lugar}${marca ? ' · ' + marca : ''}${dias != null ? ' · ' + dias + ' días' : ''}`;
+    g.innerHTML = `${ICO.meta}<span>${esc(lugar)}${marca ? ' · ' + esc(marca) : ''}${dias != null ? ' · ' + dias + ' días' : ''}</span>`;
   }
   if (seccion === 'nutri') renderNutri(fecha);
   if (seccion === 'run') renderRun(fecha);
@@ -195,7 +230,6 @@ function render() {
 }
 
 const ICON_RUN = '<svg viewBox="0 0 24 24"><circle cx="14" cy="4.5" r="1.8"/><path d="M8 21l3-6 3 2v4M6 12l3-4 4 1 2 4 3 1M11 15l-2-3"/></svg>';
-const ICON_FORK = '<svg viewBox="0 0 24 24"><path d="M7 3v8a3 3 0 0 0 3 3v7M7 3v5M10 3v5M17 3c-2 2-3 5-3 8h3v10"/></svg>';
 const ICON_X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const ICON_DOWN = '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>';
 
@@ -249,9 +283,9 @@ function renderNutri(hoy) {
       </button>
       <div class="pill-row">
         ${bal != null
-          ? `<button class="pill soft" id="btn-cierre">⌚ Editar cierre</button>`
+          ? `<button class="pill soft" id="btn-cierre">${ICO.reloj}Editar cierre</button>`
           : `<span class="pill soft">${restante >= 0 ? `Quedan ${fmt(restante)}` : `+${fmt(-restante)} sobre TMB`}</span>
-             <button class="pill action" id="btn-cierre">⌚ Cerrar día</button>`}
+             <button class="pill action" id="btn-cierre">${ICO.reloj}Cerrar día</button>`}
       </div>
       <div class="macros-panel ${macrosAbiertos || cerrado ? 'open' : ''}" id="macros">
         <div class="macro-rings">
@@ -277,7 +311,7 @@ function renderNutri(hoy) {
       const sub = rs.reduce((s, r) => s + num(r.kcal), 0), open = abiertas.has(c);
       return `<div class="meal-card ${open ? 'open' : ''}">
         <button class="meal-top" data-meal="${c}">
-          <span class="meal-ico">${EMOJI[c] || '🍴'}</span>
+          <span class="meal-ico">${EMOJI[c] || EMOJI.comida}</span>
           <span class="grow"><b>${c}</b><small>${rs.length} ${rs.length === 1 ? 'alimento' : 'alimentos'}</small></span>
           <span class="meal-kcal">${fmt(sub)}<small>kcal</small></span>
         </button>
@@ -428,8 +462,8 @@ function renderRun(hoy, dir) {
   let chip = '';
   if (hoyE) chip = logroHTML(hoyE, aHoy, fallidos.get(refDe(hoyE)));
   else if (ultima && aUlt) chip = `<button class="analysis-chip ${valClase(aUlt)}" id="chip-an">${valIcon(aUlt)} <span>${esc(tituloAn(aUlt))}</span></button>`;
-  else if (ultima && !cfg.gemini) chip = `<button class="analysis-chip" id="chip-an">🔑 <span>Añade la clave de Gemini para analizar tus entrenos</span></button>`;
-  else if (ultima && fallo) chip = `<button class="analysis-chip mid" id="chip-an">⚠️ <span>${esc(fallo)} · <u>Reintentar</u></span></button>`;
+  else if (ultima && !cfg.gemini) chip = `<button class="analysis-chip" id="chip-an">${ICO.llave}<span>Añade la clave de Gemini para analizar tus entrenos</span></button>`;
+  else if (ultima && fallo) chip = `<button class="analysis-chip mid" id="chip-an">${ICO.aviso}<span>${esc(fallo)} · <u>Reintentar</u></span></button>`;
   else if (ultima) chip = `<div class="analysis-chip"><i class="spinner"></i><span>Analizando tu ${esc(ultima.tipo)} del ${new Date(ultima.fecha + 'T12:00:00Z').getUTCDate()}…</span></div>`;
 
   // Con el logro del día hecho, la noria se esconde tras un botón negro.
@@ -559,14 +593,14 @@ function renderFuerza(hoy) {
   const porTiempo = sel && /\brondas?\b/.test(norm(sel.detalle));   // core: "2 rondas × 20 s" (las de reps no llevan rondas)
   $('#v-fuerza').innerHTML = `
     ${semanaHTML(hoy)}
-    ${hoyS ? `<div class="logro fz-logro"><span class="logro-tag">🏋️ Fuerza completada</span>
+    ${hoyS ? `<div class="logro fz-logro"><span class="logro-tag">${ICO.pesa}Fuerza completada</span>
         <span class="sym big">${MINI.fuerza}</span>
         <b class="logro-km cap" style="font-size:34px">${esc(hoyS.rutina)}</b>
         <span class="logro-val">${esc(hoyS.duracion_min)}' · RPE ${esc(hoyS.rpe || '—')}</span></div>` : ''}
     ${sel ? `<p class="sec-title">${sel.fecha === hoy ? 'Hoy' : 'Próxima sesión de fuerza'}</p>
       <div class="rueda fz-una" id="rueda">${tarjetaHTML({ ...sel, sesion: sel.sesion.replace(/^descanso \+ /, '') }, 0, hoy)}</div>`
       : '<div class="empty card">Sin sesiones de fuerza en el plan.</div>'}
-    <button class="btn-negro tb-acceso" id="btn-tabata"><span class="bn-sym">▶</span><span class="grow"><b>Comienza tu entrenamiento</b></span><span class="bn-arrow">›</span></button>
+    <button class="btn-negro tb-acceso" id="btn-tabata"><span class="bn-sym">${ICO.play}</span><span class="grow"><b>Comienza tu entrenamiento</b></span><span class="bn-arrow">›</span></button>
     <div class="fz-botones">
       <button class="btn-negro fz-b" id="btn-rutinas"><span class="bn-sym">${SIMBOLO.fuerza}</span><b>Mis rutinas</b></button>
       <button class="btn-negro fz-b" id="btn-historial"><span class="bn-sym">${ic('calendario')}</span><b>Historial</b></button>
@@ -743,7 +777,7 @@ function tbPreparar(p) {
     <h2 class="tb-h">${esc(p.titulo)}</h2>
     <p class="tb-sub">${fmtSeg(total)} en total · ${TB.seq.filter(x => x.tipo === 'trabajo').length} intervalos de trabajo</p>
     <ol class="tb-lista">${p.ejercicios.map(e => `<li>${esc(e)}</li>`).join('')}${p.finisher ? `<li class="fin">Finisher: ${esc(p.finisher.nombre)} · ${p.finisher.dur} s</li>` : ''}</ol>
-    <button class="tb-start" id="tb-start">▶ Empezar</button>
+    <button class="tb-start" id="tb-start">${ICO.play}Empezar</button>
     <button class="tb-link" id="tb-back">‹ Otros temporizadores</button>`;
   $('#tb-start').addEventListener('click', tbEmpezar);
   $('#tb-back').addEventListener('click', tbMenu);
@@ -766,8 +800,8 @@ async function tbEmpezar() {
       <b class="tb-ej" id="tb-ej"></b>
       <span class="tb-next" id="tb-next"></span>
       <div class="tb-ctrl">
-        <button id="tb-pause" aria-label="Pausa">⏸</button>
-        <button id="tb-skip" aria-label="Saltar">⏭</button>
+        <button id="tb-pause" aria-label="Pausa">${ICO.pausa}</button>
+        <button id="tb-skip" aria-label="Saltar">${ICO.saltar}</button>
       </div>
       <div class="tb-prog"><i id="tb-prog"></i></div>
     </div>`;
@@ -789,7 +823,7 @@ function tbEntrar(i) {
   $('#tb-next').textContent = p.tipo === 'trabajo' ? (sig ? `Siguiente: ${sig.nombre}` : 'Último intervalo') : p.tipo === 'descanso' ? 'Siguiente' : '';
   $('#tb-info').textContent = p.info || '';
   $('#tb-prog').style.width = `${(i / TB.seq.length) * 100}%`;
-  $('#tb-pause').textContent = '⏸';
+  $('#tb-pause').innerHTML = ICO.pausa;
   if (p.tipo === 'trabajo') { beep(1320, 0.45); navigator.vibrate?.([120, 60, 120]); decir(p.nombre); }
   else if (p.tipo === 'descanso') { beep(660, 0.45); navigator.vibrate?.(200); decir(sig ? `Descanso. Siguiente: ${sig.nombre}` : 'Descanso'); }
   else decir(`Prepárate. Empezamos con ${sig ? sig.nombre : 'el primer ejercicio'}`);
@@ -809,8 +843,8 @@ function tbTick() {
 }
 function tbPausa() {
   const p = TB.seq[TB.i]; if (!p) return;
-  if (!TB.pausa) { TB.pausa = true; TB.quedaba = p.dur - (Date.now() - TB.t0) / 1000; $('#tb-pause').textContent = '▶'; speechSynthesis?.cancel(); }
-  else { TB.pausa = false; TB.t0 = Date.now() - (p.dur - TB.quedaba) * 1000; $('#tb-pause').textContent = '⏸'; }
+  if (!TB.pausa) { TB.pausa = true; TB.quedaba = p.dur - (Date.now() - TB.t0) / 1000; $('#tb-pause').innerHTML = ICO.play; speechSynthesis?.cancel(); }
+  else { TB.pausa = false; TB.t0 = Date.now() - (p.dur - TB.quedaba) * 1000; $('#tb-pause').innerHTML = ICO.pausa; }
 }
 function tbFin() {
   clearInterval(TB.timer);
@@ -819,7 +853,7 @@ function tbFin() {
   navigator.vibrate?.([200, 100, 200, 100, 400]);
   decir('Entrenamiento completado. ¡Buen trabajo!');
   $('#inmersion').dataset.fase = 'fin';
-  $('#tb').innerHTML = `<div class="tb-done"><span class="tb-trofeo">🏆</span><b>¡Completado!</b><span>${esc(TB.rutina)} · ${min} min</span>
+  $('#tb').innerHTML = `<div class="tb-done"><span class="tb-trofeo">${ICO.trofeo}</span><b>¡Completado!</b><span>${esc(TB.rutina)} · ${min} min</span>
     <button class="tb-start" id="tb-reg">Registrar sesión</button><button class="tb-link" id="tb-otra">Otro temporizador</button></div>`;
   liberarPantalla();
   $('#tb-reg').addEventListener('click', () => {
@@ -878,12 +912,12 @@ function logroHTML(e, a, fallo) {
   const t = tipoSesion(`${e.tipo} ${e.notas}`);
   // Solo el resumen; ritmo, FC, puntos fuertes y mejoras aparecen al tocar la tarjeta.
   return `<button class="logro t-${t} ${a ? valClase(a) : ''}" id="logro">
-    <span class="logro-tag">🏅 Logro del día</span>
+    <span class="logro-tag">${ICO.medalla}Logro del día</span>
     <span class="sym big">${SIMBOLO[t]}</span>
     <b class="logro-km"><span id="logro-km">0</span><small>km</small></b>
     ${a ? `<span class="logro-val">${valIcon(a)} ${esc(tituloAn(a))}</span><span class="tap-hint">Toca para ver el análisis</span>`
-    : !cfg.gemini ? '<span class="logro-val">🔑 Añade la clave de Gemini para el análisis</span>'
-    : fallo ? `<span class="logro-val">⚠️ ${esc(fallo)} · <u>Reintentar</u></span>`
+    : !cfg.gemini ? `<span class="logro-val">${ICO.llave}Añade la clave de Gemini para el análisis</span>`
+    : fallo ? `<span class="logro-val">${ICO.aviso}${esc(fallo)} · <u>Reintentar</u></span>`
     : '<span class="logro-val"><i class="spinner"></i> Analizando tu sesión…</span>'}
   </button>`;
 }
@@ -947,7 +981,7 @@ function gestos() {
 }
 
 const valClase = a => (/Valoración:\*\* bien/.test(a) ? 'ok' : /Valoración:\*\* regular/.test(a) ? 'mid' : 'bad');
-const valIcon = a => ({ ok: '✅', mid: '🟡', bad: '🔧' }[valClase(a)]);
+const valIcon = a => `<span class="val-ic ${valClase(a)}">${{ ok: ICO.ok, mid: ICO.medio, bad: ICO.mejora }[valClase(a)]}</span>`;
 const tituloAn = a => (a.match(/\*\*Valoración:\*\* \w+ — (.+)/) || [])[1] || 'Ver análisis';
 
 function renderStrava(body, r) {
@@ -977,7 +1011,7 @@ function renderStrava(body, r) {
         <span class="grow"><b>${esc(x.distancia_km)} km</b> · ${esc(x.ritmo_min_km)}/km<br><small class="muted">${esc(x.nombre)}</small></span>
         <span class="tag ${x.uso.startsWith('dup') ? '' : 'st'}">${x.uso.startsWith('dup') ? 'Mi Fitness' : 'importada'}</span></div>`).join('')}</div>` : ''}
       ${u && u.fecha < addDays(ahora().fecha, -2) && r.all.some(e => e.fecha > u.fecha)
-        ? `<p class="aviso">⚠️ Tienes entrenos posteriores al ${fCorta(u.fecha)} que no han llegado a Strava. Revisa en Mi Fitness → Perfil → Cuentas vinculadas → Strava.</p>` : ''}
+        ? `<p class="aviso">${ICO.aviso}Tienes entrenos posteriores al ${fCorta(u.fecha)} que no han llegado a Strava. Revisa en Mi Fitness → Perfil → Cuentas vinculadas → Strava.</p>` : ''}
       <button class="btn strava-btn" id="st-sync">${ICON_STRAVA} Sincronizar ahora</button>
       <a class="btn ghost" href="https://www.strava.com/dashboard" target="_blank" rel="noopener">Abrir Strava</a>
     </div>`;
@@ -1201,36 +1235,6 @@ function inmersion(e, ev) {
   });
 }
 
-function verSesion(e) {
-  const a = analisisDe(e), prop = a ? propuestaDe(a) : [], aplicado = a?.includes('ajuste aplicado');
-  $('#sheet').hidden = false;
-  $('#sheet-title').textContent = `${e.tipo} · ${e.distancia_km} km`;
-  const lineas = a ? a.split('\n').filter(l => l.startsWith('- ')) : [];
-  $('#sheet-body').innerHTML = `
-    <div class="stat-row">
-      <div><span>Ritmo</span><b>${esc(e.ritmo_min_km)}</b></div>
-      <div><span>Tiempo</span><b>${esc(e.duracion_min)}'</b></div>
-      <div><span>FC</span><b>${esc(e.fc_media || '—')}</b></div>
-    </div>
-    ${a ? `<div class="an ${valClase(a)}"><b>${valIcon(a)} ${esc(tituloAn(a))}</b>
-      ${lineas.map(l => `<p>${esc(l.slice(2))}</p>`).join('')}</div>
-      ${prop.length ? `<div class="card plan-prop"><h3>Ajuste del plan ${aplicado ? '· aplicado ✓' : 'propuesto'}</h3>
-        <p class="muted">${esc((a.match(/\*\*Ajuste propuesto:\*\* (.+)/) || [])[1] || '')}</p>
-        ${prop.map(s => `<div class="item"><span class="tag">${esc(s.dia)} ${new Date(s.fecha + 'T12:00:00Z').getUTCDate()}</span><span class="grow"><b>${esc(s.sesion)}</b><br><small class="muted">${esc(s.detalle)}</small></span></div>`).join('')}
-        ${aplicado ? '' : '<button class="btn primary" id="an-apply">Aplicar al plan</button>'}</div>` : '<p class="muted center">El plan sigue igual.</p>'}`
-    : `<button class="btn primary" id="an-go">${cfg.gemini ? 'Analizar este entreno' : 'Añade la clave de Gemini en Ajustes'}</button>`}
-    ${e.notas ? `<p class="muted">📝 ${esc(e.notas)}</p>` : ''}`;
-  $('#an-apply')?.addEventListener('click', async () => {
-    $('#an-apply').disabled = true; $('#an-apply').textContent = 'Aplicando…';
-    try { await aplicarAjuste(e, a); toast('Plan actualizado ✓'); cerrarSheet(); render(); }
-    catch (err) { toast(err.message); $('#an-apply').disabled = false; }
-  });
-  $('#an-go')?.addEventListener('click', async () => {
-    if (!cfg.gemini) { cerrarSheet(); irA('ajustes'); return; }
-    $('#an-go').disabled = true; $('#an-go').textContent = 'Analizando…';
-    try { await analizarSesion(e); verSesion(e); } catch (err) { toast(err.message); $('#an-go').disabled = false; }
-  });
-}
 
 function renderAjustes() {
   $('#v-ajustes').innerHTML = `
@@ -1298,7 +1302,7 @@ function abrirSheet(vista) {
 function cerrarSheet() { pararCamara(); $('#sheet').hidden = true; }
 
 function cabeceraComida() {
-  return `<div class="chips meal-chips">${COMIDAS.map(c => `<button class="chip ${c === comidaSel ? 'on' : ''}" data-cs="${c}">${EMOJI[c]} ${c}</button>`).join('')}</div>`;
+  return `<div class="chips meal-chips">${COMIDAS.map(c => `<button class="chip ${c === comidaSel ? 'on' : ''}" data-cs="${c}">${EMOJI[c]}${c}</button>`).join('')}</div>`;
 }
 function bindCabecera(rerender) {
   $$('[data-cs]').forEach(b => b.addEventListener('click', () => { comidaSel = b.dataset.cs; rerender(); }));
@@ -1340,7 +1344,7 @@ function platoHTML() {
   if (!plato.length) return '';
   const tot = plato.reduce((s, x) => s + x.kcal, 0);
   return `<div class="plato">
-    <div class="plato-head"><b>${EMOJI[comidaSel]} Tu ${comidaSel}</b><span>${fmt(tot)} kcal</span></div>
+    <div class="plato-head"><b>${EMOJI[comidaSel]}Tu ${comidaSel}</b><span>${fmt(tot)} kcal</span></div>
     ${plato.map((x, i) => `<div class="item"><span class="grow name">${esc(x.alimento)}${x.fuente === 'estimado' ? ' <span class="tag">est.</span>' : ''}</span>
       <input class="g-in" type="number" inputmode="decimal" value="${x.cantidad_g}" data-gi="${i}" aria-label="gramos"><small class="muted">g</small>
       <b class="kc">${x.kcal}</b><button class="del" data-pi="${i}">${ICON_X}</button></div>`).join('')}
@@ -1686,13 +1690,23 @@ function irA(sec, dir) {
   document.querySelector('meta[name=theme-color]').content = (matchMedia('(prefers-color-scheme: dark)').matches ? '#000000' : getComputedStyle(document.body).getPropertyValue('--acc').trim() || '#ff6a00');
   window.scrollTo(0, 0);
   if (sec === 'ajustes' || Object.keys(D).length) render();
+  else if (cfg.token) $(`#v-${sec}`).innerHTML = esqueleto();
   else $(`#v-${sec}`).innerHTML = `<div class="empty card">Aún no hay datos en este dispositivo.<br><br>
     <button class="btn primary" onclick="irA('ajustes')">Conectar en Ajustes</button>
     <p class="muted" style="margin-top:10px">En iPad/iPhone, pega las claves dentro de la app instalada: no comparte memoria con Safari.</p></div>`;
 }
 
 let toastT;
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 3800); }
+function toast(msg) {
+  const t = $('#toast');
+  const tipo = /✓|guardad|actualizad|conectado|borrado|cerrado/i.test(msg) ? 'ok'
+    : /error|no válid|no encuentro|falló|límite|saturado|sin conexión|conflicto|indica|pon al menos/i.test(msg) ? 'err' : 'info';
+  t.className = 'toast ' + tipo;
+  t.innerHTML = `${{ ok: ICO.ok, err: ICO.aviso, info: ICO.medio }[tipo]}<span>${esc(String(msg).replace(/\s*✓$/, ''))}</span>`;
+  t.hidden = false; t.classList.remove('sale'); void t.offsetWidth; t.classList.add('entra');
+  clearTimeout(toastT); toastT = setTimeout(() => { t.classList.add('sale'); setTimeout(() => (t.hidden = true), 250); }, 3600);
+}
+const esqueleto = () => `<div class="sk sk-hero"></div><div class="sk sk-card"></div><div class="sk sk-card"></div><div class="sk sk-card corta"></div>`;
 
 let deferredInstall = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; });
