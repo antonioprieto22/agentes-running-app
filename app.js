@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.15.0';
+const VERSION = '2.16.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1854,17 +1854,19 @@ async function fotoBase64(file) {
 // Si uno está saturado se salta al siguiente (la saturación es por modelo).
 async function modelosGemini() {
   let lista = cfg.gModels;
-  if (!lista?.length || cfg.gModelsV !== 2 || Date.now() - (cfg.gModelsT || 0) > 3 * 864e5) {
+  if (!lista?.length || cfg.gModelsV !== 3 || Date.now() - (cfg.gModelsT || 0) > 3 * 864e5) {
     const r = await fetch(`${GEMINI}/models?pageSize=200&key=${encodeURIComponent(cfg.gemini)}`);
     if (!r.ok) throw new Error('Clave de Gemini no válida (Ajustes)');
     const ms = ((await r.json()).models || [])
       .filter(m => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent'))
-      .map(m => m.name).filter(n => /^models\/gemini-(flash-latest|flash-lite-latest|[\d.]+-flash(-lite)?)$/.test(n));
-    const ver = n => parseFloat((n.match(/gemini-([\d.]+)/) || [])[1] || 0);
-    const peso = n => (/flash-latest$/.test(n) ? 0 : /flash-lite-latest$/.test(n) ? 3 : n.includes('lite') ? 2 : 1);
+      .map(m => m.name).filter(n => /^models\/(gemini-(flash-latest|flash-lite-latest|[\d.]+-flash(-lite)?)|gemma-[\d.]+-(27|12)b-it)$/.test(n));
+    const ver = n => parseFloat((n.match(/(?:gemini|gemma)-([\d.]+)/) || [])[1] || 0);
+    // Flash (mejor calidad) → Flash-Lite (más cupo) → Gemma (cupo gratuito muy amplio, último recurso).
+    const peso = n => (/gemma/.test(n) ? 5 + (/12b/.test(n) ? 1 : 0) : /flash-latest$/.test(n) ? 0 : /flash-lite-latest$/.test(n) ? 3 : n.includes('lite') ? 2 : 1);
     ms.sort((a, b) => peso(a) - peso(b) || ver(b) - ver(a));
     if (!ms.length) throw new Error('No encuentro un modelo Gemini Flash disponible para tu clave');
-    lista = cfg.gModels = ms.slice(0, 6); cfg.gModelsT = Date.now(); cfg.gModelsV = 2; saveCfg();
+    const gemini = ms.filter(n => !/gemma/.test(n)).slice(0, 5), gemma = ms.filter(n => /gemma/.test(n)).slice(0, 2);
+    lista = cfg.gModels = [...gemini, ...gemma]; cfg.gModelsT = Date.now(); cfg.gModelsV = 3; saveCfg();
   }
   return cfg.gOk && lista.includes(cfg.gOk) ? [cfg.gOk, ...lista.filter(m => m !== cfg.gOk)] : lista;
 }
@@ -1884,8 +1886,9 @@ async function completarValoraciones(f) {
   try { await rondaValoraciones(f); } finally { valEnMarcha = false; }
   if (valOtraVez) { valOtraVez = false; completarValoraciones(ahora().fecha); }
 }
+// Todas las comidas que necesitan valoración se piden en UNA sola llamada (ahorra cupo y tiempo).
 async function rondaValoraciones(f) {
-  const vals = csv('valoraciones').rows.filter(v => v.fecha === f);
+  const vals = csv('valoraciones').rows.filter(v => v.fecha === f), pend = [];
   for (const c of COMIDAS) {
     const rs = filasDe('comidas', f).filter(r => r.comida === c);
     if (!rs.length) continue;
@@ -1894,17 +1897,25 @@ async function rondaValoraciones(f) {
     const clave = `${f}|${c}|${kc}`;
     if (valIntentadas.has(clave)) continue;     // un intento por sesión y versión de la comida
     valIntentadas.add(clave);
-    try {
-      const out = await geminiJSON(`Eres APEX, mi nutricionista deportivo. Valora mi ${c} completo: ${rs.map(r => `${r.alimento} ${r.cantidad_g} g (${r.kcal} kcal · P${r.prot_g} HC${r.hc_g} G${r.grasa_g})`).join('; ')}. Total ${kc} kcal.
-${REGLAS_VAL}
-${contextoDia(f, c)}
-Responde SOLO con JSON: {"valoracion":"","tono":"equilibrado"}`);
-      const val = valoracionDe(out);
-      if (!val) continue;
-      await guardarValoracion(f, c, { ...val, kcal: kc });
-      if (seccion === 'nutri' && $('#sheet').hidden) render();
-    } catch { /* sin cupo o sin conexión: se reintenta en la próxima sesión */ }
+    pend.push({ c, rs, kc });
   }
+  if (!pend.length) return;
+  try {
+    const out = await geminiJSON(`Eres APEX, mi nutricionista deportivo. Valora cada una de estas comidas completas de mi día:
+${pend.map(p => `- ${p.c}: ${p.rs.map(r => `${r.alimento} ${r.cantidad_g} g (${r.kcal} kcal · P${r.prot_g} HC${r.hc_g} G${r.grasa_g})`).join('; ')}. Total ${p.kc} kcal.`).join('\n')}
+${REGLAS_VAL}
+${contextoDia(f)}
+Responde SOLO con JSON: {"valoraciones":[{"comida":"${pend[0].c}","valoracion":"","tono":"equilibrado"}]} con una entrada por comida.`);
+    const lista = Array.isArray(out.valoraciones) ? out.valoraciones : [out];
+    let alguna = false;
+    for (const p of pend) {
+      const val = valoracionDe(lista.find(x => norm(x.comida) === p.c) || (pend.length === 1 ? lista[0] : {}));
+      if (!val) continue;
+      await guardarValoracion(f, p.c, { ...val, kcal: p.kc });
+      alguna = true;
+    }
+    if (alguna && seccion === 'nutri' && $('#sheet').hidden) render();
+  } catch { /* sin cupo o sin conexión: se reintenta en la próxima sesión */ }
 }
 // Contexto del día para que la valoración sepa cómo encaja la comida (déficit, entreno…).
 function contextoDia(f, excluir) {
@@ -1945,49 +1956,77 @@ async function preguntarGemini(texto, dataUrl, onIntento, fecha, nota) {
   if (!Array.isArray(out.items) || !out.items.length) throw new Error('No he reconocido alimentos; prueba con otra foto o descríbelo');
   return out;
 }
-// Petición a Gemini rápida y resistente:
-// - Sin "pensamiento" previo en los modelos Flash (para leer un plato no hace falta y es lo que más tarda).
-//   Si un modelo no admite ese ajuste (400), se repite una vez sin él.
-// - Cobertura: si el modelo en curso no ha respondido en 7 s, se lanza el siguiente en paralelo y gana el primero
-//   que conteste bien (máx. 2 a la vez). Si el primero es rápido, no se gasta cupo de más.
+// Petición a Gemini rápida, resistente y que ahorra cupo:
+// - Sin "pensamiento" previo en los Flash, imagen a resolución media y salida JSON. Si un modelo rechaza algún ajuste (400),
+//   se repite con una petición más sencilla (completa → solo JSON → básica). Gemma va siempre en básica.
+// - Memoria de cupo: un 429 deja ese modelo en reposo hasta que Google diga (retryDelay) o hasta el reinicio diario;
+//   un 503 lo aparta 1 min. Así no se pierde tiempo llamando a modelos agotados.
+// - Cobertura: si el modelo en curso no ha respondido en 7 s, se lanza el siguiente en paralelo (máx. 2) y gana el primero.
 // - Límite de 25 s por modelo; un fallo pasa al siguiente al momento. onIntento(n, total) permite mostrar el progreso.
 const GEM_COBERTURA_MS = 7000, GEM_LIMITE_MS = 25000;
+const enReposo = m => (cfg.gCool?.[m] || 0) > Date.now();
+function reposar(model, hasta) { cfg.gCool = { ...(cfg.gCool || {}), [model]: hasta }; saveCfg(); }
+// El cupo diario gratuito se reinicia a medianoche del Pacífico (08:00 UTC en invierno): margen hasta las 08:05 UTC.
+const reinicioDiario = () => { const d = new Date(); d.setUTCHours(8, 5, 0, 0); if (d <= new Date()) d.setUTCDate(d.getUTCDate() + 1); return +d; };
+function reposoPor429(err) {
+  const det = err?.error?.details || [];
+  if (det.some(x => /PerDay/i.test(JSON.stringify(x.violations || x.quotaId || '')))) return reinicioDiario();
+  const s = parseFloat((det.find(x => x.retryDelay)?.retryDelay || '').replace('s', ''));
+  return Date.now() + (s > 0 ? s * 1000 + 1000 : 60000);
+}
+// Saca el JSON aunque venga con texto o ``` alrededor.
+function extraerJSON(txt) {
+  const t = txt.replace(/```json|```/g, '').trim();
+  try { return JSON.parse(t); } catch { /* sigue */ }
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a >= 0 && b > a) return JSON.parse(t.slice(a, b + 1));
+  throw new Error('sin JSON');
+}
 async function geminiJSON(prompt, dataUrl, onIntento) {
   if (!cfg.gemini) throw new Error('Añade tu clave gratuita de Gemini en Ajustes');
   const parts = [{ text: prompt }];
   if (dataUrl) parts.push({ inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } });
-  const cuerpo = sinPensar => JSON.stringify({ contents: [{ parts }], generationConfig: {
-    temperature: 0.2, responseMimeType: 'application/json', ...(sinPensar ? { thinkingConfig: { thinkingBudget: 0 } } : {}) } });
-  const modelos = (await modelosGemini()).slice(0, 5);
+  // Niveles de petición: 2 = completa, 1 = solo JSON, 0 = básica.
+  const cuerpo = nivel => JSON.stringify({ contents: [{ parts }], generationConfig: {
+    temperature: 0.2, maxOutputTokens: 4096,
+    ...(nivel >= 1 ? { responseMimeType: 'application/json' } : {}),
+    ...(nivel >= 2 ? { thinkingConfig: { thinkingBudget: 0 }, ...(dataUrl ? { mediaResolution: 'MEDIA_RESOLUTION_MEDIUM' } : {}) } : {}),
+  } });
+  const todos = await modelosGemini();
+  // Primero los que no están en reposo; si lo están todos, se prueban igual (del que antes se libera al último).
+  const libres = todos.filter(m => !enReposo(m));
+  const modelos = (libres.length ? libres : [...todos].sort((a, b) => (cfg.gCool?.[a] || 0) - (cfg.gCool?.[b] || 0))).slice(0, 6);
   const fallos = [], ctls = new Set();
 
   // Un intento contra un modelo. Resuelve con el JSON; rechaza con { msg } (pasa al siguiente) o { fatal } (se para todo).
-  const pedir = async (model, sinPensar) => {
+  const pedir = async (model, nivel) => {
     const corto = model.replace('models/', ''), ctl = new AbortController(); ctls.add(ctl);
     let caducado = false;
     const reloj = setTimeout(() => { caducado = true; ctl.abort(); }, GEM_LIMITE_MS);
     let r;
     try {
       r = await fetch(`${GEMINI}/${model}:generateContent?key=${encodeURIComponent(cfg.gemini)}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: cuerpo(sinPensar), signal: ctl.signal });
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: cuerpo(nivel), signal: ctl.signal });
     } catch (e) {
       if (e.name === 'AbortError') throw { msg: caducado ? `${corto}: sin respuesta en 25 s` : '' };
       throw { fatal: new Error('Sin conexión con Gemini') };
     } finally { clearTimeout(reloj); ctls.delete(ctl); }
     if (r.ok) {
       const j = await r.json().catch(() => ({}));
-      const txt = (j.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('').replace(/```json|```/g, '').trim();
-      try { return JSON.parse(txt); } catch { throw { msg: `${corto}: respuesta no válida` }; }
+      const txt = (j.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('');
+      try { return extraerJSON(txt); } catch { throw { msg: `${corto}: respuesta no válida` }; }
     }
+    const err = await r.json().catch(() => ({})), msg = err?.error?.message || '';
     if (r.status === 400 || r.status === 403) {
-      const msg = (await r.json().catch(() => ({})))?.error?.message || '';
-      if (/api key|API_KEY|permission/i.test(msg) || r.status === 403) throw { fatal: new Error('Clave de Gemini no válida (Ajustes)') };
-      if (sinPensar && /think/i.test(msg)) return pedir(model, false);       // modelo sin ese ajuste → otra vez sin él
-      throw { msg: `${corto}: 400` };
+      if (/api key|API_KEY/i.test(msg) || r.status === 403 && /key|permission/i.test(msg)) throw { fatal: new Error('Clave de Gemini no válida (Ajustes)') };
+      if (nivel > 0) return pedir(model, nivel - 1);                  // algún ajuste no admitido → petición más sencilla
+      throw { msg: `${corto}: ${r.status}` };
     }
     if (r.status === 404) { cfg.gModels = []; saveCfg(); throw { msg: `${corto}: retirado` }; }
     if (cfg.gOk === model) { cfg.gOk = ''; saveCfg(); }
-    throw { msg: `${corto}: ${r.status === 429 ? 'cupo agotado' : r.status === 503 || r.status === 500 ? 'saturado' : r.status}` };
+    if (r.status === 429) { reposar(model, reposoPor429(err)); throw { msg: `${corto}: cupo agotado` }; }
+    if (r.status === 503 || r.status === 500) { reposar(model, Date.now() + 60000); throw { msg: `${corto}: saturado` }; }
+    throw { msg: `${corto}: ${r.status}` };
   };
 
   return new Promise((resolve, reject) => {
@@ -2002,7 +2041,9 @@ async function geminiJSON(prompt, dataUrl, onIntento) {
       if (i >= modelos.length) {
         if (!vivos) {
           const soloCupo = fallos.length && fallos.every(f => /cupo/.test(f));
-          terminar(false, new Error(soloCupo ? 'Has agotado el cupo gratuito de Gemini por ahora; vuelve a intentarlo más tarde'
+          const libre = Math.min(...todos.map(m => cfg.gCool?.[m] || Infinity));
+          const cuando = isFinite(libre) ? ` (vuelve hacia las ${new Date(libre).toLocaleTimeString('es-ES', { timeZone: TZ, hour: '2-digit', minute: '2-digit' })})` : '';
+          terminar(false, new Error(soloCupo ? `Has agotado el cupo gratuito de Gemini por ahora${cuando}`
             : `Gemini no responde ahora (${fallos.join(' · ') || 'sin respuesta'})`));
         }
         return;
@@ -2011,13 +2052,15 @@ async function geminiJSON(prompt, dataUrl, onIntento) {
       onIntento?.(i, modelos.length);
       clearTimeout(cobertura);
       cobertura = setTimeout(() => { if (vivos < 2) lanzar(); }, GEM_COBERTURA_MS);
-      pedir(model, /flash/.test(model)).then(out => {
-        if (cfg.gOk !== model) { cfg.gOk = model; saveCfg(); }       // la próxima vez se empieza por el que respondió
+      pedir(model, /gemma/.test(model) ? 0 : 2).then(out => {
+        if (cfg.gOk !== model) cfg.gOk = model;                       // la próxima vez se empieza por el que respondió
+        if (cfg.gCool?.[model]) delete cfg.gCool[model];
+        saveCfg();
         terminar(true, out);
-      }, err => {
+      }, e => {
         vivos--;
-        if (err?.fatal) return terminar(false, err.fatal);
-        if (err?.msg) fallos.push(err.msg);
+        if (e?.fatal) return terminar(false, e.fatal);
+        if (e?.msg) fallos.push(e.msg);
         lanzar();                                                     // falla → siguiente al momento
       });
     };
