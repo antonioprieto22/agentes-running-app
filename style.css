@@ -756,3 +756,35 @@ body[data-sec="ajustes"] #btn-ajustes { background: rgba(255,255,255,.4); }
 .tb-trofeo { font-size: 72px; animation: pop .6s cubic-bezier(.2,.9,.3,1.3); }
 .tb-done b { font-size: 30px; }
 .tb-done > span { color: #9a9a9a; }
+
+/* ===== v2.3: dorso legible, morado lúgubre y Fuerza reorganizada ===== */
+/* Morado oscuro, sombrío, con un neón muy leve */
+:root { --f-acc: #5b21b6; --f-acc2: #6d28d9; --f-acc3: #2a0b52; --f-soft: #f1ecfa; --f-ink: #3b1677; --f-glow: rgba(109, 40, 217, .12); --f-txt: #6d28d9; }
+@media (prefers-color-scheme: dark) { :root { --f-soft: #0d0717; --f-ink: #b9a6e0; --f-glow: rgba(124, 58, 237, .14); --f-txt: #a68bd8; } }
+.fz-logro { background: radial-gradient(120% 90% at 50% 0%, #4c1d95 0%, #2a0b52 55%, #0c0318 100%); box-shadow: 0 8px 24px var(--f-glow); }
+.tabata-go { background: #3b1677; }
+
+/* El dorso NO hereda el degradado de la cara: superficie oscura, borde del color y cifras sólidas */
+.rueda .next .dorso::before { opacity: 0 !important; }
+.rueda .next .dorso, .rueda .next.pos0 .dorso, #inmersion .rueda .next.pos0 .dorso {
+  background: var(--card); color: var(--text); border: 1.5px solid var(--r-acc); box-shadow: none; }
+.t-fuerza .dorso, .fz-una .next .dorso, .fz-una .next.pos0 .dorso { border-color: var(--f-acc2); }
+.rueda .next .dorso > * { opacity: 1 !important; }
+.ficha b, .fichas.dos .ficha b { background: none; -webkit-text-fill-color: currentColor; color: var(--r-acc); }
+.t-fuerza .ficha b, .fz-una .ficha b, #inmersion.im-fz .ficha b { color: var(--f-txt); }
+.ficha.cal b { color: #ff8a00; } .ficha.enf b { color: #3b8bff; } .ficha.fc b { color: #ff3d6e; }
+.ficha span { color: var(--muted); }
+.dorso-tit b { color: var(--text); }
+#inmersion .ficha { background: #111; border-color: #262626; }
+#inmersion .ficha span { color: #9a9a9a; }
+
+/* Fuerza: botones */
+.tb-acceso .bn-sym { background: var(--f-acc); font-size: 18px; }
+.tb-acceso .bn-arrow, .fz-b .bn-arrow { color: var(--f-txt); }
+.fz-botones { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fz-b { flex-direction: column; justify-content: center; text-align: center; gap: 8px; padding: 16px 10px; }
+.fz-b .bn-sym { background: var(--f-acc3); border: 1px solid var(--f-acc2); }
+.fz-b .bn-sym .sym-svg, .fz-b .bn-sym .im-ic { width: 26px; height: 26px; color: #c4b5fd; }
+#inmersion.im-fz { --im: #8b6fd1; }
+#inmersion.im-fz .im-hero .sym { color: #b9a6e0; background: rgba(91,33,182,.25); }
+.im-sec.rut h4 { color: #b9a6e0; font-size: 15px; letter-spacing: .06em; }

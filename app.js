@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -495,7 +495,7 @@ function tarjetaHTML(x, i, hoy) {
 }
 // Separa cada parte del detalle en "cifra clave" + descripción (p. ej. "3×13" + "Flexiones").
 function fichaDetalle(p) {
-  const m = p.match(/\d+\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:m\b|s\b|min\b)?(?:\s*\(total\)|\/pierna)?|\d{1,2}:\d{2}(?:[–-]\d{1,2}:\d{2})?|\d+(?:[.,]\d+)?\s*km|\d+\s*s\b|\d+\s*rondas?|\d{3}\s*[–-]\s*\d{3}/i);
+  const m = /parada/i.test(p) ? null : p.match(/\d+\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:m\b|s\b|min\b)?(?:\s*\(total\)|\/pierna)?|\d{1,2}:\d{2}(?:[–-]\d{1,2}:\d{2})?|\d+(?:[.,]\d+)?\s*km|\d+\s*s\b|\d+\s*rondas?|\d{3}\s*[–-]\s*\d{3}/i);
   const num = m ? m[0].replace(/\s+/g, ' ').trim() : '';
   let txt = m ? (p.slice(0, m.index) + p.slice(m.index + m[0].length)).replace(/\s{2,}/g, ' ').replace(/^[\s:·,-]+|[\s:·,-]+$/g, '') : p;
   const n = norm(p);
@@ -549,10 +549,10 @@ function renderFuerza(hoy) {
   const hechas = new Set(fz.map(s => s.fecha)), hoyS = fz.filter(s => s.fecha === hoy).at(-1);
   const prox = plan.filter(x => esFuerza(x) && (x.fecha > hoy || (x.fecha === hoy && !hechas.has(hoy))));
   const sel = (fuerzaSel && plan.find(x => x.fecha === fuerzaSel && esFuerza(x))) || prox[0];
-  const rts = rutinas();
+  // Si la sesión es por tiempo (core), el contador se abre ya programado con ella.
+  const porTiempo = sel && /\brondas?\b/.test(norm(sel.detalle));   // core: "2 rondas × 20 s" (las de reps no llevan rondas)
   $('#v-fuerza').innerHTML = `
     ${semanaHTML(hoy)}
-    <button class="btn-negro tb-acceso" id="btn-tabata"><span class="bn-sym">⏱</span><span class="grow"><b>Temporizador Tabata</b><small>Con sonido y voz · core, tabata, isométricos</small></span><span class="bn-arrow">›</span></button>
     ${hoyS ? `<div class="logro fz-logro"><span class="logro-tag">🏋️ Fuerza completada</span>
         <span class="sym big">${MINI.fuerza}</span>
         <b class="logro-km cap" style="font-size:34px">${esc(hoyS.rutina)}</b>
@@ -560,19 +560,48 @@ function renderFuerza(hoy) {
     ${sel ? `<p class="sec-title">${sel.fecha === hoy ? 'Hoy' : 'Próxima sesión de fuerza'}</p>
       <div class="rueda fz-una" id="rueda">${tarjetaHTML({ ...sel, sesion: sel.sesion.replace(/^descanso \+ /, '') }, 0, hoy)}</div>`
       : '<div class="empty card">Sin sesiones de fuerza en el plan.</div>'}
-    <div class="card"><h3>Mis rutinas</h3>
-      ${rts.length ? `<div class="chips">${rts.map(n => `<span class="chip">${esc(n)}</span>`).join('')}</div>`
-        : '<p class="muted">Aún no hay rutinas. Pásaselas al agente de Claude y las integrará en tu plan.</p>'}</div>
-    <div class="card"><h3>Historial</h3>
-      ${fz.slice().reverse().slice(0, 8).map(s => {
-        const d = new Date(s.fecha + 'T12:00:00Z');
-        return `<div class="session"><div class="date"><small>${DIAS[d.getUTCDay()]}</small><b>${d.getUTCDate()}</b></div>
-          <div><b class="cap">${esc(s.rutina)}</b><div class="muted">${esc(s.duracion_min)} min${s.notas ? ' · ' + esc(s.notas) : ''}</div></div>
-          <span class="tag">${s.rpe ? 'RPE ' + esc(s.rpe) : '—'}</span></div>`;
-      }).join('') || '<div class="empty">Aún no has registrado sesiones de fuerza.</div>'}</div>`;
+    <button class="btn-negro tb-acceso" id="btn-tabata"><span class="bn-sym">▶</span><span class="grow"><b>Comienza tu entrenamiento</b></span><span class="bn-arrow">›</span></button>
+    <div class="fz-botones">
+      <button class="btn-negro fz-b" id="btn-rutinas"><span class="bn-sym">${SIMBOLO.fuerza}</span><b>Mis rutinas</b></button>
+      <button class="btn-negro fz-b" id="btn-historial"><span class="bn-sym">${ic('calendario')}</span><b>Historial</b></button>
+    </div>`;
   bindSemana(hoy);
-  $('#btn-tabata').addEventListener('click', ev => abrirTabata(ev));
+  $('#btn-tabata').addEventListener('click', ev => porTiempo ? abrirTabata(ev, presetDesdeDetalle(sel.sesion, sel.detalle)) : abrirTabata(ev));
+  $('#btn-rutinas').addEventListener('click', ev => verRutinas(ev));
+  $('#btn-historial').addEventListener('click', ev => verHistorialFuerza(ev, fz));
   $$('#rueda .next').forEach(c => { c.classList.add('pos0'); c.addEventListener('click', () => c.classList.toggle('flipped')); });
+}
+// Mis rutinas a pantalla completa (inmersión): cada rutina con sus ejercicios en fichas.
+function verRutinas(ev) {
+  const txt = D.rutinas?.text || '';
+  const secciones = [...txt.matchAll(/(?:^|\n)## ([^\n]+)\n([\s\S]*?)(?=\n## |$)/g)].map(m => {
+    const lineas = m[2].split('\n').map(l => l.replace(/^-\s*/, '').trim()).filter(Boolean);
+    const meta = lineas.filter(l => /^(d[ií]as|formato|solo si)/i.test(l));
+    const ej = lineas.filter(l => !meta.includes(l)).flatMap(l => l.split(/\s+·\s+/));
+    return { nombre: m[1], meta: meta.join(' · '), ej };
+  }).filter(s => !/pausa/i.test(s.nombre));
+  abrirCapa(ev, 'im-fz', `
+    <button class="im-close" id="im-close" aria-label="Cerrar">${ICON_X}</button>
+    <div class="im-content">
+      <div class="im-hero"><span class="sym big">${SIMBOLO.fuerza}</span><b class="im-km" style="font-size:40px">Mis rutinas</b></div>
+      ${secciones.length ? secciones.map(s => `<section class="im-sec rut">
+        <h4>${esc(s.nombre)}</h4>${s.meta ? `<p class="im-mot">${esc(s.meta)}</p>` : ''}
+        <div class="fichas dos">${s.ej.map(fichaDetalle).map(f => `<div class="ficha ${f.tipo}"><b>${esc(f.num || '•')}</b><span>${esc(f.txt)}</span></div>`).join('')}</div>
+      </section>`).join('') : '<p class="im-mot">Aún no hay rutinas: pásaselas al agente de Claude.</p>'}
+    </div>`);
+}
+function verHistorialFuerza(ev, fz) {
+  abrirCapa(ev, 'im-fz', `
+    <button class="im-close" id="im-close" aria-label="Cerrar">${ICON_X}</button>
+    <div class="im-content">
+      <div class="im-hero"><span class="sym big">${ic('calendario')}</span><b class="im-km" style="font-size:40px">Historial</b>
+        <span class="im-sub">${fz.length} sesiones · ${fz.reduce((s, x) => s + num(x.duracion_min), 0)} min en total</span></div>
+      ${fz.slice().reverse().map(s => {
+        const d = new Date(s.fecha + 'T12:00:00Z');
+        return `<div class="im-item"><span class="im-day">${DIAS[d.getUTCDay()]} ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span>
+          <span><b class="cap">${esc(s.rutina)}</b><br><small>${esc(s.duracion_min)} min${s.rpe ? ' · RPE ' + esc(s.rpe) : ''}${s.notas ? ' · ' + esc(s.notas) : ''}</small></span></div>`;
+      }).join('') || '<p class="im-mot">Aún no has registrado sesiones de fuerza.</p>'}
+    </div>`);
 }
 function formFuerza() {
   const { fecha } = ahora(), plan = planRows().find(x => x.fecha === fecha && esFuerza(x));
