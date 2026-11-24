@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.8.0';
+const VERSION = '2.9.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -31,6 +31,7 @@ const EMOJI = {
 };
 const ICO = {
   apex: L('<path d="M4.5 19.5 12 5l7.5 14.5"/>'),
+  barras: L('<path d="M5 20V11M12 20V5M19 20v-6M3 20h18"/>'),
   medalla: L('<circle cx="12" cy="15" r="5"/><path d="M8.5 3.5 11 10M15.5 3.5 13 10M7 3.5h3.5M13.5 3.5H17"/>'),
   pesa: L('<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>'),
   meta: L('<path d="M5 21V4M5 4h11l-2 3.5L16 11H5"/>'),
@@ -327,7 +328,8 @@ function renderNutri(hoy) {
           <b>${esc(r.kcal)}</b><button class="del" data-del="${encodeURIComponent(r._raw)}" aria-label="Borrar">${ICON_X}</button></div>`).join('')}
         </div></div>
       </div>`;
-    }).join('') : `<button class="empty-cta" id="empty-add"><span><svg viewBox="0 0 24 24" class="ti-svg"><path d="M3.5 8.5h3.2l1.8-2.5h7l1.8 2.5h3.2v10.5h-17z"/><circle cx="12" cy="13.5" r="3.6"/></svg></span><b>Registra tu primera comida</b><small>Haz una foto del plato</small></button>`}`;
+    }).join('') : `<button class="empty-cta" id="empty-add"><span><svg viewBox="0 0 24 24" class="ti-svg"><path d="M3.5 8.5h3.2l1.8-2.5h7l1.8 2.5h3.2v10.5h-17z"/><circle cx="12" cy="13.5" r="3.6"/></svg></span><b>Registra tu primera comida</b><small>Haz una foto del plato</small></button>`}
+    ${histCta(hoy)}`;
 
   if (cerrado) {
     contar($('#bal-num'), Math.abs(bal), def ? '−' : '+');
@@ -345,6 +347,7 @@ function renderNutri(hoy) {
   }
   $('#btn-cierre')?.addEventListener('click', () => abrirSheet('cierre'));
   $('#empty-add')?.addEventListener('click', () => abrirSheet());
+  $('#btn-hist')?.addEventListener('click', abrirHistorial);
   $$('[data-meal]').forEach(b => b.addEventListener('click', () => {
     const c = b.dataset.meal; abiertas.has(c) ? abiertas.delete(c) : abiertas.add(c);
     b.setAttribute('aria-expanded', b.parentElement.classList.toggle('open'));
@@ -352,6 +355,7 @@ function renderNutri(hoy) {
   $$('[data-del]').forEach(b => b.addEventListener('click', () => borrarComida(decodeURIComponent(b.dataset.del))));
   pintarPendientes();
   escribirValoraciones();
+  completarValoraciones(hoy);
 }
 
 // Valoración de APEX: la primera vez que aparece, "APEX está escribiendo…" y se teclea; después, fija.
@@ -377,6 +381,122 @@ function escribirValoraciones() {
     }, 900 + i * 500);
   });
 }
+
+// ---------- Historial de balance ----------
+// Semanas: bloques lunes→domingo, deslizables (lo anterior a la izquierda). Debajo, el balance mensual por semanas.
+const MES_C = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const MES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const kcalTxt = v => `${v < 0 ? '−' : '+'}${fmt(Math.abs(v))}`;
+const kgTxt = v => (Math.abs(v) / 7700).toFixed(2).replace('.', ',');
+const diaMes = f => `${+f.slice(8)} ${MES_C[+f.slice(5, 7) - 1]}`;
+const sigMes = m => { let [y, mo] = m.split('-').map(Number); if (++mo > 12) { mo = 1; y++; } return `${y}-${String(mo).padStart(2, '0')}`; };
+function balanceDia(f) {
+  const n = nutriDia(f);
+  return { bal: n.gasto != null ? Math.round(n.t.kcal - n.gasto) : null, kcal: Math.round(n.t.kcal), comidas: n.rows.length };
+}
+function primerDia() {
+  const fs = [...csv('comidas').rows, ...csv('actividad').rows].map(r => r.fecha).filter(f => /^\d{4}-/.test(f)).sort();
+  return fs[0] || ahora().fecha;
+}
+function balanceRango(a, b, hoy) {
+  let tot = 0, n = 0;
+  for (let f = a; f <= b && f <= hoy; f = addDays(f, 1)) { const d = balanceDia(f); if (d.bal != null) { tot += d.bal; n++; } }
+  return { tot, n };
+}
+// Semanas del mes en curso (si es su primera semana, también las 2 anteriores), desde que hay datos.
+function semanasHist(hoy) {
+  const lHoy = lunes(hoy), ini = lunes(primerDia());
+  let l = lunes(hoy.slice(0, 8) + '01');
+  if (l === lHoy) l = addDays(l, -14);
+  const out = [];
+  for (; l <= lHoy; l = addDays(l, 7)) if (l >= ini) out.push(l);
+  return out.length ? out : [lHoy];
+}
+function bloqueSemana(l, hoy) {
+  let tot = 0, cerrados = 0;
+  const cajas = Array.from({ length: 7 }, (_, i) => addDays(l, i)).map(f => {
+    const et = `<span>${DIAS[dow(f)]} ${+f.slice(8)}</span>`;
+    if (f > hoy) return `<div class="hb-dia fut">${et}<b class="hb-txt">—</b></div>`;
+    const d = balanceDia(f);
+    if (d.bal == null) return `<div class="hb-dia ${f === hoy ? 'hoy' : 'vacio'}">${et}<b class="hb-txt">${f === hoy ? `En curso · ${fmt(d.kcal)} kcal` : d.comidas ? 'Sin cerrar' : 'Sin datos'}</b></div>`;
+    tot += d.bal; cerrados++;
+    return `<div class="hb-dia ${d.bal < 0 ? 'def' : 'sup'}">${et}<b>${kcalTxt(d.bal)}<small> kcal</small></b></div>`;
+  }).join('');
+  return `<section class="hb-sem">
+    <header><b>${diaMes(l)} – ${diaMes(addDays(l, 6))}</b><small>${cerrados}/7 días cerrados</small></header>
+    <div class="hb-dias">${cajas}</div>
+    <footer class="hb-tot"><span>Balance semanal<small>${cerrados ? (tot < 0 ? `≈ ${kgTxt(tot)} kg de grasa` : 'Superávit') : 'Aún sin días cerrados'}</small></span>
+      <b>${cerrados ? `${kcalTxt(tot)}<small> kcal</small>` : '—'}</b></footer>
+  </section>`;
+}
+function bloqueMes(ym, hoy) {
+  const ini = ym + '-01', fin = addDays(sigMes(ym) + '-01', -1), sems = [];
+  for (let l = lunes(ini), k = 1; l <= fin; l = addDays(l, 7), k++) {
+    const a = l < ini ? ini : l, b = addDays(l, 6) > fin ? fin : addDays(l, 6);
+    sems.push({ k, a, b, ...balanceRango(a, b, hoy) });
+  }
+  const total = sems.reduce((s, x) => s + x.tot, 0), dias = sems.reduce((s, x) => s + x.n, 0);
+  const max = Math.max(1, ...sems.map(s => Math.abs(s.tot)));
+  const col = s => {
+    const h = s.n ? Math.max(3, Math.round(Math.abs(s.tot) / max * 82)) : 0, sup = s.tot > 0;
+    const bar = s.n ? `<i class="hm-bar ${sup ? 'sup' : 'def'}" style="height:${h}%"></i>` : '';
+    const val = `<em class="hm-val">${s.n ? kcalTxt(s.tot) : ''}</em>`;
+    return `<button class="hm-col" data-hm="${esc(`${diaMes(s.a)} – ${diaMes(s.b)} · ${s.n ? `${kcalTxt(s.tot)} kcal · ${s.n} ${s.n === 1 ? 'día cerrado' : 'días cerrados'}` : 'sin días cerrados'}`)}">
+      <span class="hm-up">${sup ? val + bar : ''}</span><span class="hm-dn">${sup ? '' : bar + (s.n ? val : '')}</span>
+      <span class="hm-x">S${s.k}<small>${+s.a.slice(8)}–${+s.b.slice(8)}</small></span></button>`;
+  };
+  return `<section class="hm-mes">
+    <header><h2>${MES_L[+ym.slice(5) - 1]} ${ym.slice(0, 4)}</h2>
+      <div class="hm-total">${dias ? `<b>${kcalTxt(total)}<small> kcal</small></b><span class="hm-pill ${total < 0 ? 'def' : 'sup'}">${total < 0 ? `Déficit · ≈ ${kgTxt(total)} kg` : 'Superávit'}</span>` : '<b>—</b>'}</div>
+      <small class="muted">${dias} ${dias === 1 ? 'día cerrado' : 'días cerrados'} · por semanas del mes</small></header>
+    <div class="hm-chart">${sems.map(col).join('')}</div>
+    <div class="hm-leg"><span><i class="def"></i>Déficit</span><span><i class="sup"></i>Superávit</span></div>
+    <p class="hm-det">Toca una barra para ver el detalle</p>
+  </section>`;
+}
+function histCta(hoy) {
+  const { tot, n } = balanceRango(lunes(hoy), hoy, hoy);
+  return `<button class="hist-cta" id="btn-hist"><span class="meal-ico">${ICO.barras}</span>
+    <span class="grow"><b>Historial de balance</b><small>${n ? `Esta semana: ${kcalTxt(tot)} kcal · ${n} ${n === 1 ? 'día cerrado' : 'días cerrados'}` : 'Déficit y superávit por día, semana y mes'}</small></span>
+    <span class="meal-chev rot">${ICON_DOWN}</span></button>`;
+}
+function paginar(track, dots) {
+  const n = track.children.length;
+  dots.innerHTML = n > 1 ? '<i></i>'.repeat(n) : '';
+  const upd = () => { const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)); [...dots.children].forEach((d, k) => d.classList.toggle('on', k === i)); };
+  track.addEventListener('scroll', upd, { passive: true }); upd();
+}
+function abrirHistorial() {
+  const hoy = ahora().fecha, meses = [];
+  for (let m = primerDia().slice(0, 7); m <= hoy.slice(0, 7); m = sigMes(m)) meses.push(m);
+  let el = $('#hist');
+  if (!el) { el = document.createElement('div'); el.id = 'hist'; el.className = 'hist'; document.body.appendChild(el); }
+  el.innerHTML = `
+    <div class="hist-bar"><button class="icon-btn" id="hist-x" aria-label="Cerrar">${ICON_X}</button><b id="hist-tit">Historial de balance</b></div>
+    <div class="hist-pages" id="hist-pages">
+      <section class="hist-page"><div class="hist-track" id="hb-track">${semanasHist(hoy).map(l => bloqueSemana(l, hoy)).join('')}</div>
+        <div class="hist-dots" id="hb-dots"></div>
+        <p class="hist-hint">${ICON_DOWN}Desliza hacia abajo · balance mensual</p></section>
+      <section class="hist-page"><div class="hist-track" id="hm-track">${meses.map(m => bloqueMes(m, hoy)).join('')}</div>
+        <div class="hist-dots" id="hm-dots"></div></section>
+    </div>`;
+  el.hidden = false; document.body.classList.add('hist-on');
+  // Se abre en la semana y el mes actuales; lo anterior queda a la izquierda.
+  requestAnimationFrame(() => {
+    for (const [t, d] of [['#hb-track', '#hb-dots'], ['#hm-track', '#hm-dots']]) { $(t).scrollLeft = $(t).scrollWidth; paginar($(t), $(d)); }
+  });
+  const pages = $('#hist-pages');
+  pages.addEventListener('scroll', () => {
+    $('#hist-tit').textContent = pages.scrollTop > pages.clientHeight / 2 ? 'Balance mensual' : 'Historial de balance';
+  }, { passive: true });
+  $$('[data-hm]', el).forEach(b => b.addEventListener('click', () => {
+    const mes = b.closest('.hm-mes');
+    $$('.hm-col', mes).forEach(x => x.classList.toggle('sel', x === b));
+    $('.hm-det', mes).textContent = b.dataset.hm;
+  }));
+  $('#hist-x').addEventListener('click', cerrarHistorial);
+}
+function cerrarHistorial() { const el = $('#hist'); if (el) el.hidden = true; document.body.classList.remove('hist-on'); }
 
 // ---------- Fotos pendientes (IndexedDB, solo en este dispositivo) ----------
 // La foto se guarda antes de analizarla y se borra al terminar bien: si Gemini falla o se cierra la app, sigue aquí.
@@ -1449,12 +1569,15 @@ async function guardarPlato() {
   try {
     await appendLines('comidas', plato.map(x => toLine(header, { fecha, hora, comida: comidaSel, ...x, alimento: limpio(x.alimento) })),
       `${comidaSel} (${plato.length} alimentos)`);
-    if (valPend) await guardarValoracion(plato[0].fecha || fecha, comidaSel, valPend).catch(() => {});   // no bloquea la comida
+    // La valoración de la foto vale si el plato es toda la comida; si se suma a otra ya registrada, la app la rehace entera.
+    const fv = plato[0].fecha || fecha, previas = csv('comidas').rows.filter(r => r.fecha === fv && r.comida === comidaSel).length;
+    const kcalPlato = Math.round(plato.reduce((s, x) => s + x.kcal, 0));
+    if (valPend && !previas) await guardarValoracion(fv, comidaSel, { ...valPend, kcal: kcalPlato }).catch(() => {});   // no bloquea la comida
     plato = []; valPend = null; recordarPlato(); abiertas.add(comidaSel); cerrarSheet(); toast('Comida guardada ✓'); render();
   } catch (e) { toast(e.message); btn.disabled = false; }
 }
 // Una valoración por comida y día (la última sustituye a la anterior).
-const VAL_COLS = ['fecha', 'comida', 'tono', 'texto'];
+const VAL_COLS = ['fecha', 'comida', 'tono', 'texto', 'kcal'];   // kcal = subtotal de la comida al valorarla
 const guardarValoracion = (f, c, v) => modify('valoraciones', t => {
   const ls = (t.trim() ? t : VAL_COLS.join(',')).split('\n').filter(l => l.trim() && !l.startsWith(`${f},${c},`));
   return [...ls, toLine(VAL_COLS, { fecha: f, comida: c, ...v })].join('\n');
@@ -1496,16 +1619,54 @@ async function modelosGemini() {
   return cfg.gOk && lista.includes(cfg.gOk) ? [cfg.gOk, ...lista.filter(m => m !== cfg.gOk)] : lista;
 }
 const dormir = ms => new Promise(r => setTimeout(r, ms));
+const REGLAS_VAL = `Además escribe "valoracion" como un nutricionista amable y cercano (tú eres APEX y me hablas de tú):
+- 1 o 2 frases cortas (máx. 150 caracteres) sin comas y sin sermones ni consejos médicos.
+- Di qué tipo de comida es (p. ej. "Desayuno ligero y alto en proteína") y cómo encaja en mi día según el contexto.
+- Si es copiosa o parece social (con amigos o celebración) quita la culpa: celebra que la he disfrutado y si cabe en el gasto del día dilo ("Has disfrutado de un día libre sin salirte del déficit"); si no cabe propón compensar con suavidad.
+- "tono": "ligero", "equilibrado" o "copioso".`;
+// Toda comida del día lleva valoración: si falta (código de barras, base, chat sin ella) o la comida ha cambiado, se genera aquí.
+const valIntentadas = new Set();
+let valEnMarcha = false, valOtraVez = false;
+async function completarValoraciones(f) {
+  if (!cfg.gemini || !D.valoraciones) return;
+  if (valEnMarcha) { valOtraVez = true; return; }
+  valEnMarcha = true;
+  try { await rondaValoraciones(f); } finally { valEnMarcha = false; }
+  if (valOtraVez) { valOtraVez = false; completarValoraciones(ahora().fecha); }
+}
+async function rondaValoraciones(f) {
+  const vals = csv('valoraciones').rows.filter(v => v.fecha === f);
+  for (const c of COMIDAS) {
+    const rs = csv('comidas').rows.filter(r => r.fecha === f && r.comida === c);
+    if (!rs.length) continue;
+    const kc = Math.round(rs.reduce((s, r) => s + num(r.kcal), 0)), v = vals.find(x => x.comida === c);
+    if (v && (v.kcal === '' || v.kcal == null || Math.round(num(v.kcal)) === kc)) continue;
+    const clave = `${f}|${c}|${kc}`;
+    if (valIntentadas.has(clave)) continue;     // un intento por sesión y versión de la comida
+    valIntentadas.add(clave);
+    try {
+      const out = await geminiJSON(`Eres APEX, mi nutricionista deportivo. Valora mi ${c} completo: ${rs.map(r => `${r.alimento} ${r.cantidad_g} g (${r.kcal} kcal · P${r.prot_g} HC${r.hc_g} G${r.grasa_g})`).join('; ')}. Total ${kc} kcal.
+${REGLAS_VAL}
+${contextoDia(f, c)}
+Responde SOLO con JSON: {"valoracion":"","tono":"equilibrado"}`);
+      const val = valoracionDe(out);
+      if (!val) continue;
+      await guardarValoracion(f, c, { ...val, kcal: kc });
+      if (seccion === 'nutri' && $('#sheet').hidden) render();
+    } catch { /* sin cupo o sin conexión: se reintenta en la próxima sesión */ }
+  }
+}
 // Contexto del día para que la valoración sepa cómo encaja la comida (déficit, entreno…).
-function contextoDia(f) {
+function contextoDia(f, excluir) {
   const n = nutriDia(f), p = perfil();
-  const ya = COMIDAS.map(c => [c, n.rows.filter(r => r.comida === c).reduce((s, r) => s + num(r.kcal), 0)])
-    .filter(x => x[1]).map(([c, k]) => `${c} ${Math.round(k)} kcal`).join('; ');
+  const otras = COMIDAS.filter(c => c !== excluir).map(c => [c, n.rows.filter(r => r.comida === c).reduce((s, r) => s + num(r.kcal), 0)]).filter(x => x[1]);
+  const ya = otras.map(([c, k]) => `${c} ${Math.round(k)} kcal`).join('; ');
+  n.t.kcal = otras.reduce((s, x) => s + x[1], 0);
   const act = csv('actividad').rows.slice(-14).map(r => num(r.kcal_activas)).filter(Boolean);
   const media = act.length ? Math.round(act.reduce((a, b) => a + b, 0) / act.length) : 0;
   const run = csv('entrenos').rows.filter(e => e.fecha === f).map(e => `${e.distancia_km} km`).join(' + ');
   const fz = csv('fuerza').rows.some(e => e.fecha === f);
-  return `Contexto de mi día (${fechaLarga(f)}): antes de esta comida llevo ${ya ? `${ya} (total ${Math.round(n.t.kcal)} kcal)` : '0 kcal'}.
+  return `Contexto de mi día (${fechaLarga(f)}): sin contar esta comida llevo ${ya ? `${ya} (total ${Math.round(n.t.kcal)} kcal)` : '0 kcal'}.
 Gasto: TMB ${n.tmb} kcal + kcal activas del reloj ${n.act ? `= ${Math.round(n.gasto)} kcal hoy` : `(aún sin cerrar el día; mi media es ${media || '≈600'} kcal activas)`}.
 ${run ? `Hoy he corrido ${run}.` : 'Hoy no he corrido.'}${fz ? ' Hoy he hecho fuerza.' : ''} Objetivo: ${p.objetivo || 'perder grasa'}${n.protRef ? `; proteína de referencia ${n.protRef} g/día` : ''}.`;
 }
@@ -1525,11 +1686,7 @@ Reglas:
 - Nombres cortos en español, sin comas.
 ${texto ? `Descripción del usuario: "${texto}"` : ''}
 ${nota ? `Comentario del usuario sobre la foto (úsalo para raciones, ingredientes ocultos, cocinado y para la valoración): "${nota}"` : ''}
-Además escribe "valoracion" como un nutricionista amable y cercano (tú eres APEX y me hablas de tú):
-- 1 o 2 frases cortas (máx. 150 caracteres) sin comas y sin sermones ni consejos médicos.
-- Di qué tipo de comida es (p. ej. "Desayuno ligero y alto en proteína") y cómo encaja en mi día según el contexto.
-- Si es copiosa o parece social (con amigos o celebración) quita la culpa: celebra que la he disfrutado y si cabe en el gasto del día dilo ("Has disfrutado de un día libre sin salirte del déficit"); si no cabe propón compensar con suavidad.
-- "tono": "ligero", "equilibrado" o "copioso".
+${REGLAS_VAL}
 ${contextoDia(fecha)}
 Responde SOLO con JSON: {"plato":"nombre corto","items":[{"alimento":"","cantidad_g":0,"kcal":0,"prot_g":0,"hc_g":0,"grasa_g":0}],"valoracion":"","tono":"equilibrado"}`;
 }
