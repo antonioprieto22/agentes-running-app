@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.16.0';
+const VERSION = '2.16.1';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1941,7 +1941,10 @@ function promptNutri(texto, fecha = ahora().fecha, nota = '') {
   return `Eres APEX, mi nutricionista deportivo. Analiza ${texto ? 'la descripción' : 'la foto'} de una comida y desglosa cada ingrediente.
 Reglas:
 - Gramos en el "tope alto realista" (mejor pasarse que quedarse corto).
-- No añadas aceite, mantequilla ni salsas si no son evidentes; si se ven o se mencionan, inclúyelos como ingrediente aparte.
+- Recoge TODOS los ingredientes del plato, también los que no se ven: en platos cocinados (guisos, legumbres, arroces, pastas, salsas, rebozados, fritos…) desglosa la receta típica española completa para esa ración. Ej.: lentejas → lentejas cocidas + sofrito (aceite de oliva, cebolla, ajo, pimiento, tomate) + zanahoria, patata, chorizo o morcilla si es la versión habitual o se ve; tortilla → huevo, patata, aceite de freír absorbido; arroz → aceite del sofrito.
+- El aceite de cocinado va siempre como ingrediente aparte con gramos realistas (sofrito de una ración ~10–15 g; frito: el absorbido).
+- En alimentos sencillos (fruta, yogur, pan, plancha sin salsa visible) no inventes extras.
+- Lo que diga el comentario o la descripción del usuario manda sobre la receta típica (p. ej. "sin chorizo", "sin aceite", "al vapor").
 - La sal aporta 0 kcal.
 - Si un ingrediente coincide con uno de esta base, usa exactamente ese nombre: ${base}.
 - Nombres cortos en español, sin comas.
