@@ -804,3 +804,6 @@ body.hist-on { overflow: hidden; }
 .gp-fila span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gp-fila b { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .gp-fila b.ok { color: var(--good); } .gp-fila b.ko { color: var(--bad); font-weight: 500; }
+
+.gp-fila b.ko { max-width: 62%; text-align: right; white-space: normal; font-size: 12px; }
+.gp-nota { margin-top: 6px; }

@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.17.0';
+const VERSION = '2.17.1';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -2100,15 +2100,56 @@ async function geminiJSON(prompt, dataUrl, onIntento, { soloModelo } = {}) {
     lanzar();
   });
 }
-// Ajustes › Probar Gemini: mide cada modelo con una petición mínima (y de paso enseña a la app cuál es el más rápido).
-async function probarGemini(salida) {
-  const modelos = await modelosGemini();
-  salida.innerHTML = modelos.map(m => `<div class="gp-fila" data-gm="${esc(m)}"><span>${esc(m.replace('models/', ''))}</span><b><i class="spinner"></i></b></div>`).join('');
-  for (const m of modelos) {
-    const celda = $(`[data-gm="${CSS.escape(m)}"] b`, salida), t0 = Date.now();
-    try { await geminiJSON('Responde SOLO con JSON: {"ok":true}', null, null, { soloModelo: m }); celda.textContent = `${((Date.now() - t0) / 1000).toFixed(1)} s`; celda.className = 'ok'; }
-    catch (e) { celda.textContent = /cupo/i.test(e.message) ? 'sin cupo' : /no responde/.test(e.message) ? (e.message.match(/\((.*)\)/)?.[1] || 'error').replace(/^[^:]+:\s*/, '') : 'error'; celda.className = 'ko'; }
+// Ajustes › Probar Gemini: una petición mínima y directa a cada modelo (sin reintentos ni reposos) para ver el motivo real.
+// Muestra el tiempo si responde; si no, qué límite de Google ha saltado (por minuto / por día / límite 0 = sin cupo gratuito).
+function motivoGoogle(status, err) {
+  const msg = err?.error?.message || '', det = err?.error?.details || [];
+  if (status === 429) {
+    const v = det.flatMap(x => x.violations || []), q = v.map(x => x.quotaId || '').join(' ') + ' ' + msg;
+    const limite0 = /limit:\s*0\b/.test(msg);
+    const espera = parseFloat((det.find(x => x.retryDelay)?.retryDelay || '').replace('s', ''));
+    if (limite0) return 'sin cupo gratuito para este modelo (límite 0)';
+    if (/PerDay/i.test(q)) return 'cupo diario agotado (se reinicia ~09:00)';
+    if (/PerMinute/i.test(q)) return `límite por minuto${espera ? ` · libre en ${Math.ceil(espera)} s` : ''}`;
+    return `cupo agotado${espera ? ` · libre en ${Math.ceil(espera)} s` : ''}`;
   }
+  if (status === 400 || status === 403) return /api key/i.test(msg) ? 'clave no válida' : `rechazado: ${msg.slice(0, 80)}`;
+  if (status === 404) return 'modelo retirado';
+  if (status === 503 || status === 500) return 'saturado ahora mismo';
+  return `error ${status}: ${msg.slice(0, 60)}`;
+}
+async function probarGemini(salida) {
+  cfg.gModels = []; saveCfg();                                   // lista fresca de modelos de la clave
+  const modelos = await modelosGemini();
+  salida.innerHTML = modelos.map(m => `<div class="gp-fila" data-gm="${esc(m)}"><span>${esc(m.replace('models/', ''))}</span><b><i class="spinner"></i></b></div>`).join('')
+    + '<p class="muted gp-nota" id="gp-nota"></p>';
+  let limite0 = 0, diario = 0, bien = 0;
+  for (const m of modelos) {
+    const celda = $(`[data-gm="${CSS.escape(m)}"] b`, salida), t0 = Date.now(), ctl = new AbortController();
+    const reloj = setTimeout(() => ctl.abort(), 20000);
+    try {
+      const r = await fetch(`${GEMINI}/${m}:generateContent?key=${encodeURIComponent(cfg.gemini)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'Di solo: ok' }] }], generationConfig: { maxOutputTokens: 20 } }),
+      });
+      if (r.ok) {
+        const ms = Date.now() - t0; anotarLatencia(m, ms);
+        if (cfg.gCool?.[m]) delete cfg.gCool[m];
+        celda.textContent = `${(ms / 1000).toFixed(1)} s`; celda.className = 'ok'; bien++;
+      } else {
+        const err = await r.json().catch(() => ({})), motivo = motivoGoogle(r.status, err);
+        if (r.status === 429) reposar(m, /límite 0/.test(motivo) ? Date.now() + 7 * 864e5 : reposoPor429(err));
+        limite0 += /límite 0/.test(motivo); diario += /diario/.test(motivo);
+        celda.textContent = motivo; celda.className = 'ko';
+      }
+    } catch (e) { celda.textContent = e.name === 'AbortError' ? 'sin respuesta en 20 s' : 'sin conexión'; celda.className = 'ko'; }
+    finally { clearTimeout(reloj); }
+  }
+  saveCfg();
+  $('#gp-nota').textContent = bien ? `${bien} ${bien === 1 ? 'modelo disponible' : 'modelos disponibles'}: la app empezará por el más rápido.`
+    : limite0 === modelos.length ? 'Tu clave no tiene cupo gratuito en ningún modelo. Crea una clave nueva en aistudio.google.com/apikey (proyecto nuevo) o activa la facturación en ese proyecto.'
+    : diario ? 'Cupo diario agotado: vuelve a funcionar al reiniciarse (hacia las 09:00). Si se te queda corto, activar la facturación en AI Studio lo elimina (céntimos al mes).'
+    : 'Ningún modelo responde ahora mismo; prueba de nuevo en unos minutos.';
 }
 // foto (opcional): una foto pendiente de otro momento conserva su fecha y hora.
 function añadirResultado(out, foto) {
