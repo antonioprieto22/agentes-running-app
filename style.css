@@ -704,7 +704,6 @@ body.hist-on { overflow: hidden; }
 @keyframes bob { 50% { transform: translateY(3px); } }
 
 /* Verde del ✅ clásico (verde iOS) y rojo a juego */
-@@@END
 .hb-sem, .hm-mes { flex: 0 0 100%; scroll-snap-align: center; padding: 4px 16px 6px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .hb-sem header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 2px; }
 .hb-sem header b { display: block; font-size: 16px; font-weight: 800; }
@@ -797,3 +796,11 @@ body.hist-on { overflow: hidden; }
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 4px 14px rgba(0,0,0,.2); animation: tIn .35s cubic-bezier(.2,.9,.3,1.2); white-space: nowrap; }
 @media (prefers-color-scheme: dark) { .red-pill { background: rgba(40, 40, 44, .92); border: 1px solid var(--line); } }
 
+
+/* Ajustes › Velocidad de Gemini */
+.gp-res { display: grid; gap: 2px; }
+.gp-res:empty { display: none; }
+.gp-fila { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.gp-fila span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-fila b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gp-fila b.ok { color: var(--good); } .gp-fila b.ko { color: var(--bad); font-weight: 500; }
