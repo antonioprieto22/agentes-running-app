@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.14.2';
+const VERSION = '2.15.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1844,10 +1844,10 @@ function desdeBase(nombre, g) {
 // ---------- Foto / texto con Gemini ----------
 async function fotoBase64(file) {
   const img = await createImageBitmap(file);
-  const s = Math.min(1, 1024 / Math.max(img.width, img.height));
+  const s = Math.min(1, 896 / Math.max(img.width, img.height));   // 896 px: basta para reconocer el plato y sube antes
   const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.82);
+  return c.toDataURL('image/jpeg', 0.8);
 }
 // Modelos Flash disponibles para la clave, del más nuevo al más ligero (respaldo si uno está saturado).
 // Modelos a probar, en orden: el último que funcionó → alias estable "flash-latest" → Flash por versión → Flash-Lite.
@@ -1945,47 +1945,84 @@ async function preguntarGemini(texto, dataUrl, onIntento, fecha, nota) {
   if (!Array.isArray(out.items) || !out.items.length) throw new Error('No he reconocido alimentos; prueba con otra foto o descríbelo');
   return out;
 }
-// Un intento por modelo (máx. 5), con límite de 25 s cada uno. onIntento(n, total) permite mostrar el progreso.
+// Petición a Gemini rápida y resistente:
+// - Sin "pensamiento" previo en los modelos Flash (para leer un plato no hace falta y es lo que más tarda).
+//   Si un modelo no admite ese ajuste (400), se repite una vez sin él.
+// - Cobertura: si el modelo en curso no ha respondido en 7 s, se lanza el siguiente en paralelo y gana el primero
+//   que conteste bien (máx. 2 a la vez). Si el primero es rápido, no se gasta cupo de más.
+// - Límite de 25 s por modelo; un fallo pasa al siguiente al momento. onIntento(n, total) permite mostrar el progreso.
+const GEM_COBERTURA_MS = 7000, GEM_LIMITE_MS = 25000;
 async function geminiJSON(prompt, dataUrl, onIntento) {
   if (!cfg.gemini) throw new Error('Añade tu clave gratuita de Gemini en Ajustes');
   const parts = [{ text: prompt }];
   if (dataUrl) parts.push({ inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } });
-  const body = JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } });
+  const cuerpo = sinPensar => JSON.stringify({ contents: [{ parts }], generationConfig: {
+    temperature: 0.2, responseMimeType: 'application/json', ...(sinPensar ? { thinkingConfig: { thinkingBudget: 0 } } : {}) } });
   const modelos = (await modelosGemini()).slice(0, 5);
-  const fallos = [];
-  for (let k = 0; k < modelos.length; k++) {
-    const model = modelos[k], corto = model.replace('models/', '');
-    onIntento?.(k + 1, modelos.length);
-    const ctl = new AbortController(), reloj = setTimeout(() => ctl.abort(), 25000);
+  const fallos = [], ctls = new Set();
+
+  // Un intento contra un modelo. Resuelve con el JSON; rechaza con { msg } (pasa al siguiente) o { fatal } (se para todo).
+  const pedir = async (model, sinPensar) => {
+    const corto = model.replace('models/', ''), ctl = new AbortController(); ctls.add(ctl);
+    let caducado = false;
+    const reloj = setTimeout(() => { caducado = true; ctl.abort(); }, GEM_LIMITE_MS);
     let r;
     try {
       r = await fetch(`${GEMINI}/${model}:generateContent?key=${encodeURIComponent(cfg.gemini)}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: ctl.signal });
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: cuerpo(sinPensar), signal: ctl.signal });
     } catch (e) {
-      clearTimeout(reloj);
-      if (e.name === 'AbortError') { fallos.push(`${corto}: sin respuesta en 25 s`); continue; }
-      throw new Error('Sin conexión con Gemini');
-    }
-    clearTimeout(reloj);
+      if (e.name === 'AbortError') throw { msg: caducado ? `${corto}: sin respuesta en 25 s` : '' };
+      throw { fatal: new Error('Sin conexión con Gemini') };
+    } finally { clearTimeout(reloj); ctls.delete(ctl); }
     if (r.ok) {
-      const j = await r.json();
-      const txt = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').replace(/```json|```/g, '').trim();
-      try { const out = JSON.parse(txt); if (cfg.gOk !== model) { cfg.gOk = model; saveCfg(); } return out; }
-      catch { fallos.push(`${corto}: respuesta no válida`); continue; }
+      const j = await r.json().catch(() => ({}));
+      const txt = (j.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('').replace(/```json|```/g, '').trim();
+      try { return JSON.parse(txt); } catch { throw { msg: `${corto}: respuesta no válida` }; }
     }
     if (r.status === 400 || r.status === 403) {
       const msg = (await r.json().catch(() => ({})))?.error?.message || '';
-      if (/api key|API_KEY|permission/i.test(msg) || r.status === 403) throw new Error('Clave de Gemini no válida (Ajustes)');
-      fallos.push(`${corto}: ${r.status}`); continue;          // p. ej. el modelo no admite la petición → siguiente
+      if (/api key|API_KEY|permission/i.test(msg) || r.status === 403) throw { fatal: new Error('Clave de Gemini no válida (Ajustes)') };
+      if (sinPensar && /think/i.test(msg)) return pedir(model, false);       // modelo sin ese ajuste → otra vez sin él
+      throw { msg: `${corto}: 400` };
     }
-    if (r.status === 404) { cfg.gModels = []; saveCfg(); fallos.push(`${corto}: retirado`); continue; }
-    fallos.push(`${corto}: ${r.status === 429 ? 'cupo agotado' : r.status === 503 || r.status === 500 ? 'saturado' : r.status}`);
+    if (r.status === 404) { cfg.gModels = []; saveCfg(); throw { msg: `${corto}: retirado` }; }
     if (cfg.gOk === model) { cfg.gOk = ''; saveCfg(); }
-    await dormir(500);
-  }
-  const soloCupo = fallos.length && fallos.every(f => /cupo/.test(f));
-  throw new Error(soloCupo ? 'Has agotado el cupo gratuito de Gemini por ahora; vuelve a intentarlo más tarde'
-    : `Gemini no responde ahora (${fallos.join(' · ')})`);
+    throw { msg: `${corto}: ${r.status === 429 ? 'cupo agotado' : r.status === 503 || r.status === 500 ? 'saturado' : r.status}` };
+  };
+
+  return new Promise((resolve, reject) => {
+    let i = 0, vivos = 0, hecho = false, cobertura = 0;
+    const terminar = (ok, valor) => {
+      if (hecho) return; hecho = true; clearTimeout(cobertura);
+      ctls.forEach(c => c.abort());                                   // cancela el que siga en marcha
+      ok ? resolve(valor) : reject(valor);
+    };
+    const lanzar = () => {
+      if (hecho) return;
+      if (i >= modelos.length) {
+        if (!vivos) {
+          const soloCupo = fallos.length && fallos.every(f => /cupo/.test(f));
+          terminar(false, new Error(soloCupo ? 'Has agotado el cupo gratuito de Gemini por ahora; vuelve a intentarlo más tarde'
+            : `Gemini no responde ahora (${fallos.join(' · ') || 'sin respuesta'})`));
+        }
+        return;
+      }
+      const model = modelos[i++]; vivos++;
+      onIntento?.(i, modelos.length);
+      clearTimeout(cobertura);
+      cobertura = setTimeout(() => { if (vivos < 2) lanzar(); }, GEM_COBERTURA_MS);
+      pedir(model, /flash/.test(model)).then(out => {
+        if (cfg.gOk !== model) { cfg.gOk = model; saveCfg(); }       // la próxima vez se empieza por el que respondió
+        terminar(true, out);
+      }, err => {
+        vivos--;
+        if (err?.fatal) return terminar(false, err.fatal);
+        if (err?.msg) fallos.push(err.msg);
+        lanzar();                                                     // falla → siguiente al momento
+      });
+    };
+    lanzar();
+  });
 }
 // foto (opcional): una foto pendiente de otro momento conserva su fecha y hora.
 function añadirResultado(out, foto) {
@@ -2016,7 +2053,7 @@ async function analizarFoto(src) {
     <p class="muted center" id="an-estado">Detectando alimentos y raciones…</p>`;
   try {
     const out = await preguntarGemini('', foto.dataUrl, (n, t) => {
-      if (n > 1 && $('#an-estado')) $('#an-estado').textContent = `El modelo anterior está saturado · probando otro (${n}/${t})…`;
+      if (n > 1 && $('#an-estado')) $('#an-estado').textContent = `Tarda más de lo normal · probando también otro modelo (${n}/${t})…`;
     }, foto.fecha, foto.nota);
     añadirResultado(out, foto);
     await borrarFoto(foto.id);
