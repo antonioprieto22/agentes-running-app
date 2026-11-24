@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.17.1';
+const VERSION = '2.18.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1703,7 +1703,13 @@ function renderAjustes() {
       </ol>
     </div>
     ${cfg.gemini ? `<div class="card stack">
-      <h3>Velocidad de Gemini</h3>
+      <h3>Gemini: gasto y velocidad</h3>
+      <div class="gasto-g">
+        <div class="gg-top"><span>Gasto estimado este mes</span><b>${eur(gastoMes())} <small>de ${eur(topeGemini())}</small></b></div>
+        <i class="gg-bar ${topeAlcanzado() ? 'lleno' : ''}"><em style="width:${Math.min(100, gastoMes() / Math.max(topeGemini(), 0.01) * 100)}%"></em></i>
+        <label class="gg-tope">Tope mensual (€)<input id="c-gtope" type="number" inputmode="decimal" step="0.5" min="0" value="${topeGemini()}"></label>
+        <p class="muted">Al llegar al tope la app deja de usar Gemini hasta el día 1 (0 = sin tope). Es una estimación con precios de pago; el plan gratuito no cuesta nada.</p>
+      </div>
       <p class="muted">Mide cada modelo con tu clave. La app empieza siempre por el más rápido.</p>
       <div id="gp-res" class="gp-res"></div>
       <button class="btn ghost" id="c-gtest">Probar Gemini</button>
@@ -1713,6 +1719,10 @@ function renderAjustes() {
       <a class="btn ghost" href="${CLAUDE_URL}" target="_blank" rel="noopener">Abrir el agente (Claude Code)</a>
       <p class="muted">APEX · versión ${VERSION} · ${ultimaCarga ? `datos actualizados ${haceCuanto(ultimaCarga)}` : 'sin datos cargados'}${colaRed.length ? ` · ${colaRed.length} cambios por subir` : ''}</p>
     </div>`;
+  $('#c-gtope')?.addEventListener('change', e => {
+    const v = Math.max(0, num(e.target.value)); cfg.gTope = v; saveCfg();
+    toast(v ? `Tope de Gemini: ${eur(v)} al mes ✓` : 'Gemini sin tope de gasto ✓'); renderAjustes();
+  });
   $('#c-gtest')?.addEventListener('click', async ev => {
     const b = ev.currentTarget; b.disabled = true; b.textContent = 'Midiendo…';
     try { await probarGemini($('#gp-res')); } catch (e) { toast(e.message); }
@@ -1980,6 +1990,23 @@ async function preguntarGemini(texto, dataUrl, onIntento, fecha, nota) {
 //   penalización para que, a igualdad, se prefiera la mejor calidad.
 // - Cobertura: si el modelo en curso no responde en 4 s (texto) o 7 s (foto), se lanza el siguiente en paralelo (máx. 2).
 // - Límite por modelo: 15 s (texto) o 25 s (foto). onIntento(n, total) permite mostrar el progreso.
+// ---------- Tope de gasto mensual de Gemini (plan de pago) ----------
+// Google solo avisa con los presupuestos; el corte real lo hace la app. Cada respuesta trae los tokens usados
+// (usageMetadata): se calcula el coste con precios de pago conservadores (USD por millón de tokens, tratados como €,
+// lo que deja margen) y se acumula por mes. Al llegar al tope, la app deja de llamar a Gemini hasta el día 1.
+const PRECIO_GEM = m => (/gemma/.test(m) ? [0, 0] : /lite/.test(m) ? [0.10, 0.40] : [0.50, 3.00]);   // [entrada, salida]
+const mesActual = () => ahora().fecha.slice(0, 7);
+const topeGemini = () => (cfg.gTope ?? 1);
+const gastoMes = () => (cfg.gGasto?.mes === mesActual() ? cfg.gGasto.eur : 0);
+const topeAlcanzado = () => topeGemini() > 0 && gastoMes() >= topeGemini();
+const eur = v => `${v.toFixed(v < 0.1 ? 3 : 2).replace('.', ',')} €`;
+function anotarGasto(model, u) {
+  if (!u) return;
+  const [pin, pout] = PRECIO_GEM(model);
+  const coste = ((u.promptTokenCount || 0) * pin + ((u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0)) * pout) / 1e6;
+  cfg.gGasto = { mes: mesActual(), eur: gastoMes() + coste };
+  saveCfg();
+}
 const enReposo = m => (cfg.gCool?.[m] || 0) > Date.now();
 function reposar(model, hasta) { cfg.gCool = { ...(cfg.gCool || {}), [model]: hasta }; saveCfg(); }
 // El cupo diario gratuito se reinicia a medianoche del Pacífico (08:00 UTC en invierno): margen hasta las 08:05 UTC.
@@ -2017,6 +2044,7 @@ function variantes(model, conImagen) {
 }
 async function geminiJSON(prompt, dataUrl, onIntento, { soloModelo } = {}) {
   if (!cfg.gemini) throw new Error('Añade tu clave gratuita de Gemini en Ajustes');
+  if (topeAlcanzado()) throw new Error(`Tope de gasto de Gemini alcanzado este mes (${eur(gastoMes())} de ${eur(topeGemini())}). Se reinicia el día 1; puedes subirlo en Ajustes.`);
   const parts = [{ text: prompt }];
   if (dataUrl) parts.push({ inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } });
   const LIMITE = dataUrl ? 25000 : 15000, COBERTURA = dataUrl ? 7000 : 4000;
@@ -2048,6 +2076,7 @@ async function geminiJSON(prompt, dataUrl, onIntento, { soloModelo } = {}) {
     if (r.ok) {
       const j = await r.json().catch(() => ({}));
       const txt = (j.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('');
+      anotarGasto(model, j.usageMetadata);
       try { const out = extraerJSON(txt); anotarLatencia(model, Date.now() - t0); return out; }
       catch { throw { msg: `${corto}: respuesta no válida` }; }
     }
@@ -2134,6 +2163,7 @@ async function probarGemini(salida) {
       });
       if (r.ok) {
         const ms = Date.now() - t0; anotarLatencia(m, ms);
+        anotarGasto(m, (await r.json().catch(() => ({}))).usageMetadata);
         if (cfg.gCool?.[m]) delete cfg.gCool[m];
         celda.textContent = `${(ms / 1000).toFixed(1)} s`; celda.className = 'ok'; bien++;
       } else {

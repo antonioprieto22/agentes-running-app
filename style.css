@@ -807,3 +807,14 @@ body.hist-on { overflow: hidden; }
 
 .gp-fila b.ko { max-width: 62%; text-align: right; white-space: normal; font-size: 12px; }
 .gp-nota { margin-top: 6px; }
+
+/* Ajustes › gasto de Gemini */
+.gasto-g { display: grid; gap: 8px; padding: 12px; border-radius: var(--r-md); background: var(--soft); }
+.gg-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; }
+.gg-top b { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.gg-top b small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.gg-bar { display: block; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.gg-bar em { display: block; height: 100%; background: var(--ok); border-radius: 3px; }
+.gg-bar.lleno em { background: var(--ko); }
+.gg-tope { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.gg-tope input { width: 90px; text-align: right; }
