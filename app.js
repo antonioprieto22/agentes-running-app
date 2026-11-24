@@ -3,10 +3,10 @@
 if (!Array.prototype.at) {
   Object.defineProperty(Array.prototype, 'at', { value(i) { i = Math.trunc(i) || 0; return this[i < 0 ? this.length + i : i]; }, configurable: true, writable: true });
 }
-// Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
+// APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.3.4';
+const VERSION = '2.4.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1016,7 +1016,7 @@ function promptCoach(e) {
   const hist = csv('entrenos').rows.filter(x => x.fecha >= addDays(fecha, -35)).map(x =>
     `${x.fecha} ${x.tipo} ${x.distancia_km}km ${x.duracion_min}min ${x.ritmo_min_km}/km FC${x.fc_media || '?'} RPE${x.rpe || '?'} ${x.notas} (${x.fuente})`).join('\n');
   const planHoy = planRows().find(x => x.fecha === e.fecha);
-  return `Eres mi entrenador de running (media distancia, prevención de lesiones). Hoy es ${fecha}.
+  return `Eres APEX, mi entrenador de running (media distancia, prevención de lesiones). Hoy es ${fecha}.
 Atleta: ${p.peso_kg} kg, ${p.edad} años. Objetivo: ${p.objetivo_carrera} el ${p.fecha_objetivo}. Días: ${p.dias_entreno}. Molestias: ${p.molestias}.
 Zonas: rodajes Z2 con alerta de FC en 148–152 ppm. Mi Fitness es más fiable que Strava (Strava infla la distancia ~2–4 %).
 Reglas: progresión prudente (≤10 % de volumen semanal), descarga cada 3–4 semanas, ACWR >1,3 = vigilar. Si hay dolor o molestia: no progresar y recomendar consultar a un profesional. Sin consejos médicos.
@@ -1261,7 +1261,7 @@ function renderAjustes() {
     <div class="card stack">
       <button class="btn ghost" id="c-install" hidden>Instalar en la pantalla de inicio</button>
       <a class="btn ghost" href="${CLAUDE_URL}" target="_blank" rel="noopener">Abrir el agente (Claude Code)</a>
-      <p class="muted">Versión ${VERSION}</p>
+      <p class="muted">APEX · versión ${VERSION}</p>
     </div>`;
   $('#c-save').addEventListener('click', () => {
     const gem = $('#c-gem').value.trim();
@@ -1397,7 +1397,7 @@ async function modelosGemini() {
 const dormir = ms => new Promise(r => setTimeout(r, ms));
 function promptNutri(texto) {
   const base = csv('alimentos').rows.map(a => a.alimento).join(', ');
-  return `Eres un nutricionista deportivo. Analiza ${texto ? 'la descripción' : 'la foto'} de una comida y desglosa cada ingrediente.
+  return `Eres APEX, mi nutricionista deportivo. Analiza ${texto ? 'la descripción' : 'la foto'} de una comida y desglosa cada ingrediente.
 Reglas:
 - Gramos en el "tope alto realista" (mejor pasarse que quedarse corto).
 - No añadas aceite, mantequilla ni salsas si no son evidentes; si se ven o se mencionan, inclúyelos como ingrediente aparte.

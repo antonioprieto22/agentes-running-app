@@ -815,3 +815,8 @@ body[data-sec="ajustes"] #btn-ajustes { background: rgba(255,255,255,.4); }
 /* Repeticiones de fuerza en morado (gana a la regla general naranja) */
 .t-fuerza .fichas .ficha b, .fz-una .fichas .ficha b, #inmersion.im-fz .fichas .ficha b { color: var(--f-txt) !important; }
 .fz-una .ficha.fin, .t-fuerza .ficha.fin { border-color: rgba(139, 92, 246, .45); }
+
+/* ===== v2.4: nombre APEX en la pantalla de carga ===== */
+.sp-nombre { margin-top: -18px; font-size: 22px; font-weight: 900; letter-spacing: .55em; padding-left: .55em; color: #fff;
+  font-style: italic; animation: spNombre 1s .35s cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes spNombre { from { opacity: 0; letter-spacing: 1.2em; filter: blur(3px); } }
