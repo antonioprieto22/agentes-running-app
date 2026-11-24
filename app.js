@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.1.1';
+const VERSION = '2.1.2';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -583,6 +583,7 @@ function formFuerza() {
 // Tipo de sesión → símbolo propio.
 function tipoSesion(txt) {
   const s = norm(txt);
+  if (/fuerza|core|full body|superior/.test(s)) return 'fuerza';   // antes que "series" (2×10 no son series de running)
   if (/series|interval|\d+\s*[x×]\s*\d+/.test(s)) return 'series';
   if (/tempo|umbral|progresiv/.test(s)) return 'tempo';
   if (/tirada|largo/.test(s)) return 'tirada';
@@ -591,6 +592,8 @@ function tipoSesion(txt) {
   return 'rodaje';
 }
 const SIMBOLO = {
+  // Fuerza: mancuerna
+  fuerza: '<svg viewBox="0 0 48 48" class="sym-svg"><path class="ln" d="M14 12v24M34 12v24M8 17v14M40 17v14M14 24h20M3 24h5M40 24h5"/></svg>',
   // Series: bloques de intensidad que suben y bajan
   series: '<svg viewBox="0 0 48 48" class="sym-svg"><rect x="5" y="26" width="6" height="16" rx="2"/><rect x="15" y="12" width="6" height="30" rx="2"/><rect x="25" y="26" width="6" height="16" rx="2"/><rect x="35" y="8" width="6" height="34" rx="2"/><path d="M4 6l4 4 4-4" class="ln"/></svg>',
   // Zona 2: corazón con pulso tranquilo
