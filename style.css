@@ -796,3 +796,26 @@ body.hist-on { overflow: hidden; }
   padding: 6px 14px; border-radius: 99px; font-size: 12px; font-weight: 600; color: #fff; background: rgba(28, 25, 23, .88);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 4px 14px rgba(0,0,0,.2); animation: tIn .35s cubic-bezier(.2,.9,.3,1.2); white-space: nowrap; }
 @media (prefers-color-scheme: dark) { .red-pill { background: rgba(40, 40, 44, .92); border: 1px solid var(--line); } }
+
+/* ---------- Análisis + recuperación en una caja ---------- */
+/* Arriba el color del análisis, abajo el amarillo del contador, unidos por un degradado corto; al terminar, toda verde. */
+.an-recup { --an: var(--ok); position: relative; overflow: hidden; display: grid; width: 100%; text-align: left; border-radius: var(--r-lg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--an) 82%, #fff) 0%, var(--an) 40%, #ffd60a 60%, #ffc800 100%);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--an) 30%, transparent); animation: pop .45s cubic-bezier(.2,.9,.3,1.2); transition: background .6s; }
+.an-recup.mid { --an: #f59e0b; }
+.an-recup.bad { --an: var(--ko); }
+.ar-top { display: flex; align-items: center; gap: 10px; padding: 14px 16px 12px; color: #fff; font-weight: 700; }
+.ar-top .val-ic, .ar-top .val-ic .li { color: #fff; }
+.ar-ver { font-size: 12px; font-weight: 600; opacity: .85; white-space: nowrap; }
+.ar-bot { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 16px 18px; color: #1f1600; }
+.an-recup.listo { background: linear-gradient(160deg, #5ee07f, var(--ok) 55%, var(--ok2)); box-shadow: 0 6px 18px rgba(52, 199, 89, .3); }
+.an-recup.listo .ar-bot { color: #fff; }
+.an-recup.listo .rc-ic { background: rgba(255, 255, 255, .2); }
+
+/* Logro del día con contador en su parte inferior */
+.logro.con-recup { overflow: hidden; padding-bottom: 0; }
+.logro-recup { position: relative; justify-self: stretch; display: flex; align-items: center; gap: 12px; margin: 8px -18px 0; padding: 22px 18px 20px;
+  text-align: left; color: #1f1600; background: linear-gradient(180deg, rgba(255, 214, 10, 0) 0%, #ffd60a 34%, #ffc800 100%); }
+.logro.listo { background: radial-gradient(120% 90% at 50% 0%, #5ee07f 0%, var(--ok) 50%, #14532d 100%); transition: background .6s; }
+.logro.listo .logro-recup { background: transparent; color: #fff; }
+.logro.listo .rc-ic { background: rgba(255, 255, 255, .2); }
