@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.11.1';
+const VERSION = '2.12.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -54,7 +54,8 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const num = x => { const n = parseFloat(String(x ?? '').replace(',', '.')); return isNaN(n) ? 0 : n; };
 const r1 = x => Math.round(x * 10) / 10;
 const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
-const fmt = n => Math.round(n).toLocaleString('es-ES');
+const NF_ES = new Intl.NumberFormat('es-ES');   // un único formateador (crear uno por número es caro)
+const fmt = n => NF_ES.format(Math.round(n));
 
 // ---------- configuración ----------
 let cfg = {};
@@ -63,17 +64,21 @@ cfg = { owner: 'antonioprieto22', repo: 'agentes-running', token: '', gemini: ''
 const saveCfg = () => { try { localStorage.setItem('cfg', JSON.stringify(cfg)); } catch { /* sin almacenamiento */ } };
 
 // ---------- fechas ----------
+// Formateadores de hora de Madrid creados una sola vez (ahora() se llama decenas de veces por pantalla y el contador cada segundo).
+const DT_MADRID = new Intl.DateTimeFormat('en-CA', {
+  timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
+const partesMadrid = () => Object.fromEntries(DT_MADRID.formatToParts(new Date()).map(x => [x.type, x.value]));
 function ahora() {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  const p = partesMadrid();
   return { fecha: `${p.year}-${p.month}-${p.day}`, hora: `${p.hour}:${p.minute}`, h: +p.hour };
 }
 const addDays = (f, n) => { const d = new Date(f + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const dow = f => new Date(f + 'T00:00:00Z').getUTCDay();
 const lunes = f => addDays(f, -((dow(f) + 6) % 7));
 const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
-const fechaLarga = f => new Date(f + 'T12:00:00Z').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+const FECHA_LARGA = new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+const fechaLarga = f => FECHA_LARGA.format(new Date(f + 'T12:00:00Z'));
 const diasEntre = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5);
 const comidaPorHora = h => (h < 12 ? 'desayuno' : h < 17 ? 'comida' : h < 20 ? 'merienda' : 'cena');
 
@@ -188,11 +193,18 @@ const memoizar = (clave, texto, fn) => { const m = memo.get(clave); if (m && m.t
 const csv = k => memoizar('csv:' + k, D[k]?.text || '', parseCsv);
 
 // ---------- cálculos ----------
+// Índice fecha → filas de una tabla, recalculado solo cuando cambia su texto (el historial consulta decenas de días).
+const porFecha = k => memoizar('idx:' + k, D[k]?.text || '', () => {
+  const m = new Map();
+  for (const r of csv(k).rows) { const l = m.get(r.fecha); if (l) l.push(r); else m.set(r.fecha, [r]); }
+  return m;
+});
+const filasDe = (k, f) => porFecha(k).get(f) || [];
 function nutriDia(f) {
-  const rows = csv('comidas').rows.filter(r => r.fecha === f);
+  const rows = filasDe('comidas', f);
   const t = { kcal: 0, P: 0, HC: 0, G: 0 };
   rows.forEach(r => { t.kcal += num(r.kcal); t.P += num(r.prot_g); t.HC += num(r.hc_g); t.G += num(r.grasa_g); });
-  const p = perfil(), act = csv('actividad').rows.find(r => r.fecha === f);
+  const p = perfil(), act = filasDe('actividad', f).at(-1);
   const tmb = num(p.tmb_kcal) || 1880;
   return {
     rows, t, tmb, act,
@@ -773,8 +785,7 @@ function renderRun(hoy, dir) {
 const RECUP_COLS = ['fecha', 'hasta', 'horas', 'fuente'];
 const tsMadrid = s => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10), +s.slice(11, 13) || 0, +s.slice(14, 16) || 0, +s.slice(17, 19) || 0);
 function ahoraTs() {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  const p = partesMadrid();
   return tsMadrid(`${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`);
 }
 const fmtTs = ts => new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
@@ -811,6 +822,7 @@ function arrancarRecuperacion() {
   const ini = +el.dataset.ini, fin = +el.dataset.fin, dos = n => String(n).padStart(2, '0');
   const tic = () => {
     if (!el.isConnected) return clearInterval(recupTimer);
+    if (document.hidden) return;                               // app en segundo plano: no se repinta
     const ahoraMs = ahoraTs(), falta = fin - ahoraMs;
     if (falta <= 0) {
       el.classList.add('listo');
@@ -885,7 +897,7 @@ function bindSemana(hoy) {
     const f = b.dataset.sd, k = b.dataset.k;
     if (k === 'fuerza') { fuerzaSel = f; if (seccion !== 'fuerza') irA('fuerza', 'left'); else render(); return; }
     if (k !== 'run') return;
-    const hecho = csv('entrenos').rows.filter(e => e.fecha === f).at(-1);
+    const hecho = filasDe('entrenos', f).at(-1);
     if (seccion !== 'run') { runTab = 'resumen'; irA('run', 'right'); }
     if (hecho) return inmersion(hecho, ev);
     const pend = pendRun(hoy), idx = pend.findIndex(x => x.fecha === f);
@@ -1824,7 +1836,7 @@ async function completarValoraciones(f) {
 async function rondaValoraciones(f) {
   const vals = csv('valoraciones').rows.filter(v => v.fecha === f);
   for (const c of COMIDAS) {
-    const rs = csv('comidas').rows.filter(r => r.fecha === f && r.comida === c);
+    const rs = filasDe('comidas', f).filter(r => r.comida === c);
     if (!rs.length) continue;
     const kc = Math.round(rs.reduce((s, r) => s + num(r.kcal), 0)), v = vals.find(x => x.comida === c);
     if (v && (v.kcal === '' || v.kcal == null || Math.round(num(v.kcal)) === kc)) continue;
@@ -1851,8 +1863,8 @@ function contextoDia(f, excluir) {
   n.t.kcal = otras.reduce((s, x) => s + x[1], 0);
   const act = csv('actividad').rows.slice(-14).map(r => num(r.kcal_activas)).filter(Boolean);
   const media = act.length ? Math.round(act.reduce((a, b) => a + b, 0) / act.length) : 0;
-  const run = csv('entrenos').rows.filter(e => e.fecha === f).map(e => `${e.distancia_km} km`).join(' + ');
-  const fz = csv('fuerza').rows.some(e => e.fecha === f);
+  const run = filasDe('entrenos', f).map(e => `${e.distancia_km} km`).join(' + ');
+  const fz = filasDe('fuerza', f).length > 0;
   return `Contexto de mi día (${fechaLarga(f)}): sin contar esta comida llevo ${ya ? `${ya} (total ${Math.round(n.t.kcal)} kcal)` : '0 kcal'}.
 Gasto: TMB ${n.tmb} kcal + kcal activas del reloj ${n.act ? `= ${Math.round(n.gasto)} kcal hoy` : `(aún sin cerrar el día; mi media es ${media || '≈600'} kcal activas)`}.
 ${run ? `Hoy he corrido ${run}.` : 'Hoy no he corrido.'}${fz ? ' Hoy he hecho fuerza.' : ''} Objetivo: ${p.objetivo || 'perder grasa'}${n.protRef ? `; proteína de referencia ${n.protRef} g/día` : ''}.`;

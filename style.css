@@ -780,10 +780,9 @@ body.hist-on { overflow: hidden; }
 @keyframes reloj { 0%, 70% { transform: rotate(0); } 85%, 100% { transform: rotate(180deg); } }
 .recup small { display: block; font-size: 12px; font-weight: 600; opacity: .7; }
 .rc-t { display: block; font-size: 28px; font-weight: 900; letter-spacing: .01em; line-height: 1.1; font-variant-numeric: tabular-nums; }
-/* Barra: naranja de Running sobre pista blanca, bien visible sobre el amarillo */
-.rc-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; background: rgba(255, 255, 255, .55); }
-.rc-bar em { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ff8a3d, #fc4c02); border-radius: 0 4px 4px 0;
-  box-shadow: 0 0 8px rgba(252, 76, 2, .6); transition: width 1s linear; }
-.recup.listo .rc-bar em { background: #fff; box-shadow: none; }
+/* Barra: relleno blanco limpio sobre pista anaranjada (máximo contraste sobre el amarillo) */
+.rc-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; background: linear-gradient(90deg, rgba(252, 76, 2, .55), rgba(255, 138, 61, .45)); }
+.rc-bar em { display: block; height: 100%; width: 0; background: #fff; border-radius: 0 4px 4px 0;
+  box-shadow: 0 0 6px rgba(252, 76, 2, .45), inset 0 -1px 0 rgba(252, 76, 2, .15); transition: width 1s linear; }
 .recup.listo { background: linear-gradient(135deg, #5ee07f, #34c759); color: #04210d; box-shadow: 0 6px 18px rgba(52, 199, 89, .28); }
 .recup.listo .rc-ic svg { animation: none; }
