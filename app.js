@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.5.0';
+const VERSION = '2.6.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -284,7 +284,7 @@ function renderNutri(hoy) {
         <div class="meal-items">${rs.map(r => `<div class="item"><span class="grow name">${esc(r.alimento)}${r.fuente === 'estimado' ? ' <span class="tag">est.</span>' : ''}<small class="muted"> · ${esc(r.cantidad_g)} g</small></span>
           <b>${esc(r.kcal)}</b><button class="del" data-del="${encodeURIComponent(r._raw)}" aria-label="Borrar">${ICON_X}</button></div>`).join('')}</div>
       </div>`;
-    }).join('') : `<button class="empty-cta" id="empty-add"><span>📷</span><b>Registra tu primera comida</b><small>Haz una foto del plato</small></button>`}`;
+    }).join('') : `<button class="empty-cta" id="empty-add"><span><svg viewBox="0 0 24 24" class="ti-svg"><path d="M3.5 8.5h3.2l1.8-2.5h7l1.8 2.5h3.2v10.5h-17z"/><circle cx="12" cy="13.5" r="3.6"/></svg></span><b>Registra tu primera comida</b><small>Haz una foto del plato</small></button>`}`;
 
   if (cerrado) {
     contar($('#bal-num'), Math.abs(bal), def ? '−' : '+');
@@ -1310,17 +1310,17 @@ function vistaInicio() {
     ${cabeceraComida()}
     <p class="photo-title">Foto del plato · la IA detecta alimentos y kcal</p>
     <div class="photo-pick">
-      <label class="tile hero-tile" for="foto-in"><span class="tile-ico">📷</span><b>Hacer foto</b>
+      <label class="tile hero-tile" for="foto-in"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><path d="M3.5 8.5h3.2l1.8-2.5h7l1.8 2.5h3.2v10.5h-17z"/><circle cx="12" cy="13.5" r="3.6"/></svg></span><b>Hacer foto</b>
         <input type="file" id="foto-in" accept="image/*" capture="environment" hidden></label>
-      <label class="tile hero-tile alt" for="gal-in"><span class="tile-ico">🖼️</span><b>Galería</b>
+      <label class="tile hero-tile alt" for="gal-in"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 15.5l-5-5-9.5 9"/></svg></span><b>Galería</b>
         <input type="file" id="gal-in" accept="image/*" hidden></label>
     </div>
     <div class="tiles">
-      <button class="tile" data-v="barras"><span class="tile-ico">▥</span><b>Código de barras</b></button>
-      <button class="tile" data-v="texto"><span class="tile-ico">✍️</span><b>Describir</b></button>
-      <button class="tile" data-v="base"><span class="tile-ico">📚</span><b>Mi base</b></button>
-      <button class="tile" data-v="peso"><span class="tile-ico">⚖️</span><b>Peso</b></button>
-      <button class="tile" data-v="cierre"><span class="tile-ico">⌚</span><b>Cerrar día</b></button>
+      <button class="tile" data-v="barras"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><path d="M4 5v14M7 5v14M9.5 5v14M13 5v14M15.5 5v14M20 5v14"/></svg></span><b>Código de barras</b></button>
+      <button class="tile" data-v="texto"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><path d="M4 20h4L19.5 8.5l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></span><b>Describir</b></button>
+      <button class="tile" data-v="base"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><path d="M5 4.5h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17.5a3 3 0 0 1 3-3h11"/></svg></span><b>Mi base</b></button>
+      <button class="tile" data-v="peso"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 10a4.5 4.5 0 0 1 7 0l-3.5 3.5"/></svg></span><b>Peso</b></button>
+      <button class="tile" data-v="cierre"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><rect x="7" y="6.5" width="10" height="11" rx="3"/><path d="M9 6.5l1-3.5h4l1 3.5M9 17.5l1 3.5h4l1-3.5M12 10v2.2l1.3 1"/></svg></span><b>Cerrar día</b></button>
     </div>
     ${platoHTML()}`;
   bindCabecera(vistaInicio);
@@ -1597,9 +1597,9 @@ function formEntreno() {
   $('#seg-body').innerHTML = `<div class="stack">
     <p class="photo-title">Captura del reloj o de Strava · se rellena sola</p>
     <div class="photo-pick">
-      <label class="tile hero-tile run-tile" for="e-cam"><span class="tile-ico">📷</span><b>Hacer foto</b>
+      <label class="tile hero-tile run-tile" for="e-cam"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><path d="M3.5 8.5h3.2l1.8-2.5h7l1.8 2.5h3.2v10.5h-17z"/><circle cx="12" cy="13.5" r="3.6"/></svg></span><b>Hacer foto</b>
         <input type="file" id="e-cam" accept="image/*" capture="environment" hidden></label>
-      <label class="tile hero-tile alt run-alt" for="e-gal"><span class="tile-ico">🖼️</span><b>Galería</b>
+      <label class="tile hero-tile alt run-alt" for="e-gal"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 15.5l-5-5-9.5 9"/></svg></span><b>Galería</b>
         <input type="file" id="e-gal" accept="image/*" hidden></label>
     </div>
     <p class="muted center" id="e-estado"></p>

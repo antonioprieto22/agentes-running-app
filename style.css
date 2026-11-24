@@ -837,3 +837,10 @@ body[data-sec="ajustes"] #btn-ajustes { background: rgba(255,255,255,.4); }
   70%  { opacity: 1; filter: blur(0); text-shadow: -8px 0 8px rgba(236,40,140,.25); }
   100% { opacity: 1; transform: translateX(0) skewX(-10deg); text-shadow: none; }
 }
+
+/* ===== v2.6: iconos de línea profesionales en las fichas de añadir ===== */
+.ti-svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; display: block; }
+.tile-ico { display: grid; place-items: center; line-height: 0; }
+.hero-tile .ti-svg { width: 36px; height: 36px; stroke-width: 1.6; }
+.tile:not(.hero-tile) .tile-ico { width: 44px; height: 44px; border-radius: 14px; background: color-mix(in srgb, var(--acc) 14%, transparent); color: var(--acc); }
+.empty-cta .ti-svg { width: 40px; height: 40px; stroke-width: 1.5; }
