@@ -1,8 +1,12 @@
 'use strict';
+// Compatibilidad con Safari/iPadOS antiguos (< 15.4): Array.prototype.at
+if (!Array.prototype.at) {
+  Object.defineProperty(Array.prototype, 'at', { value(i) { i = Math.trunc(i) || 0; return this[i < 0 ? this.length + i : i]; }, configurable: true, writable: true });
+}
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.3.3';
+const VERSION = '2.3.4';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1682,6 +1686,9 @@ function irA(sec, dir) {
   document.querySelector('meta[name=theme-color]').content = (matchMedia('(prefers-color-scheme: dark)').matches ? '#000000' : getComputedStyle(document.body).getPropertyValue('--acc').trim() || '#ff6a00');
   window.scrollTo(0, 0);
   if (sec === 'ajustes' || Object.keys(D).length) render();
+  else $(`#v-${sec}`).innerHTML = `<div class="empty card">Aún no hay datos en este dispositivo.<br><br>
+    <button class="btn primary" onclick="irA('ajustes')">Conectar en Ajustes</button>
+    <p class="muted" style="margin-top:10px">En iPad/iPhone, pega las claves dentro de la app instalada: no comparte memoria con Safari.</p></div>`;
 }
 
 let toastT;
