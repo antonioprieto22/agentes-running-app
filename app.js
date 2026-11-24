@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.9.0';
+const VERSION = '2.10.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -244,6 +244,7 @@ function renderNutri(hoy) {
   const restante = Math.round(ref - n.t.kcal);
   const porComida = COMIDAS.map(c => ({ c, rs: n.rows.filter(r => r.comida === c) })).filter(x => x.rs.length);
   const vals = Object.fromEntries(csv('valoraciones').rows.filter(v => v.fecha === hoy && v.texto).map(v => [v.comida, v]));
+  const vistas = valVistas();
 
   // Día cerrado → el balance es lo principal de la pantalla.
   const def = bal != null && bal < 0;
@@ -314,15 +315,16 @@ function renderNutri(hoy) {
     ${porComida.length ? porComida.map(({ c, rs }) => {
       const sub = rs.reduce((s, r) => s + num(r.kcal), 0), open = abiertas.has(c), v = vals[c];
       const m = rs.reduce((s, r) => ({ P: s.P + num(r.prot_g), HC: s.HC + num(r.hc_g), G: s.G + num(r.grasa_g) }), { P: 0, HC: 0, G: 0 });
-      return `<div class="meal-card ${open ? 'open' : ''}">
+      const k = v ? `${hoy}|${c}|${v.texto.length}|${v.texto.slice(0, 12)}` : '';
+      return `<div class="meal-card ${open ? 'open' : ''} ${v && !vistas.includes(k) ? 'nuevo' : ''}">
         <button class="meal-top" data-meal="${c}" aria-expanded="${open}">
           <span class="meal-ico">${EMOJI[c] || EMOJI.comida}</span>
           <span class="grow"><b>${c}</b><small>${rs.length} ${rs.length === 1 ? 'alimento' : 'alimentos'}</small></span>
           <span class="meal-kcal">${fmt(sub)}<small>kcal</small></span>
           <span class="meal-chev">${ICON_DOWN}</span>
         </button>
-        ${v ? `<p class="meal-val t-${esc(v.tono)}" data-k="${esc(`${hoy}|${c}|${v.texto.length}|${v.texto.slice(0, 12)}`)}"><span class="mv-ico">${ICO.apex}</span><span class="mv-txt">${esc(v.texto)}</span></p>` : ''}
         <div class="meal-items"><div class="mi-in">
+          ${v ? `<p class="meal-val t-${esc(v.tono)}" data-k="${esc(k)}"><span class="mv-ico">${ICO.apex}</span><span class="mv-txt">${esc(v.texto)}</span></p>` : ''}
           <div class="meal-macros"><span><i class="dot p"></i>Prot. <b>${Math.round(m.P)} g</b></span><span><i class="dot h"></i>Hidr. <b>${Math.round(m.HC)} g</b></span><span><i class="dot g"></i>Grasa <b>${Math.round(m.G)} g</b></span></div>
           ${rs.map(r => `<div class="item"><span class="grow name">${esc(r.alimento)}${r.fuente === 'estimado' ? ' <span class="tag">est.</span>' : ''}<small class="muted"> · ${esc(r.cantidad_g)} g</small></span>
           <b>${esc(r.kcal)}</b><button class="del" data-del="${encodeURIComponent(r._raw)}" aria-label="Borrar">${ICON_X}</button></div>`).join('')}
@@ -350,7 +352,9 @@ function renderNutri(hoy) {
   $('#btn-hist')?.addEventListener('click', abrirHistorial);
   $$('[data-meal]').forEach(b => b.addEventListener('click', () => {
     const c = b.dataset.meal; abiertas.has(c) ? abiertas.delete(c) : abiertas.add(c);
-    b.setAttribute('aria-expanded', b.parentElement.classList.toggle('open'));
+    const abierta = b.parentElement.classList.toggle('open');
+    b.setAttribute('aria-expanded', abierta);
+    if (abierta) escribirValoraciones(b.parentElement);
   }));
   $$('[data-del]').forEach(b => b.addEventListener('click', () => borrarComida(decodeURIComponent(b.dataset.del))));
   pintarPendientes();
@@ -358,12 +362,21 @@ function renderNutri(hoy) {
   completarValoraciones(hoy);
 }
 
-// Valoración de APEX: la primera vez que aparece, "APEX está escribiendo…" y se teclea; después, fija.
-function escribirValoraciones() {
-  if ($('#splash:not(.fuera)') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  let vistas; try { vistas = JSON.parse(localStorage.getItem('valVistas') || '[]'); } catch { vistas = []; }
-  $$('.meal-val[data-k]').filter(el => !vistas.includes(el.dataset.k)).forEach((el, i) => {
-    const span = $('.mv-txt', el), txt = span.textContent, k = el.dataset.k;
+// Valoración de APEX: vive dentro del desglose. La primera vez que se abre la comida, "APEX está escribiendo…"
+// y se teclea; las siguientes, aparece con un fundido. Una comida con comentario sin leer lleva un punto en la flechita.
+function valVistas() { try { return JSON.parse(localStorage.getItem('valVistas') || '[]'); } catch { return []; } }
+function escribirValoraciones(ambito = document) {
+  if ($('#splash:not(.fuera)')) return;
+  const reducido = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let vistas = valVistas();
+  const els = ambito === document ? $$('.meal-card.open .meal-val[data-k]') : $$('.meal-val[data-k]', ambito);
+  els.filter(el => !el.dataset.anim).forEach((el, i) => {
+    const span = $('.mv-txt', el), txt = span.textContent, k = el.dataset.k, card = el.closest('.meal-card');
+    if (reducido || vistas.includes(k)) {                     // ya leída: fundido suave
+      el.classList.remove('fade'); void el.offsetWidth; el.classList.add('fade');
+      card.classList.remove('nuevo'); return;
+    }
+    el.dataset.anim = '1';
     span.textContent = ''; el.classList.add('pensando');
     setTimeout(() => {
       if (!el.isConnected) return;
@@ -373,12 +386,12 @@ function escribirValoraciones() {
         if (!el.isConnected) return;
         j = Math.min(txt.length, j + 2); span.textContent = txt.slice(0, j);
         if (j < txt.length) return setTimeout(paso, 24);
-        el.classList.remove('typing');
-        vistas = [...vistas.filter(x => x !== k), k].slice(-80);
+        el.classList.remove('typing'); delete el.dataset.anim; card.classList.remove('nuevo');
+        vistas = [...valVistas().filter(x => x !== k), k].slice(-80);
         try { localStorage.setItem('valVistas', JSON.stringify(vistas)); } catch { /* sin almacenamiento */ }
       };
       paso();
-    }, 900 + i * 500);
+    }, 650 + i * 500);
   });
 }
 
@@ -412,21 +425,30 @@ function semanasHist(hoy) {
   for (; l <= lHoy; l = addDays(l, 7)) if (l >= ini) out.push(l);
   return out.length ? out : [lHoy];
 }
+// Casillas tipo emoji: ✅ verde con check (déficit) / roja con flecha (superávit).
+const HB_OK = '<svg viewBox="0 0 24 24"><path d="M6 12.5l4 4 8-9"/></svg>';
+const HB_KO = '<svg viewBox="0 0 24 24"><path d="M12 18V6M6.5 11.5 12 6l5.5 5.5"/></svg>';
 function bloqueSemana(l, hoy) {
-  let tot = 0, cerrados = 0;
-  const cajas = Array.from({ length: 7 }, (_, i) => addDays(l, i)).map(f => {
-    const et = `<span>${DIAS[dow(f)]} ${+f.slice(8)}</span>`;
-    if (f > hoy) return `<div class="hb-dia fut">${et}<b class="hb-txt">—</b></div>`;
-    const d = balanceDia(f);
-    if (d.bal == null) return `<div class="hb-dia ${f === hoy ? 'hoy' : 'vacio'}">${et}<b class="hb-txt">${f === hoy ? `En curso · ${fmt(d.kcal)} kcal` : d.comidas ? 'Sin cerrar' : 'Sin datos'}</b></div>`;
-    tot += d.bal; cerrados++;
-    return `<div class="hb-dia ${d.bal < 0 ? 'def' : 'sup'}">${et}<b>${kcalTxt(d.bal)}<small> kcal</small></b></div>`;
+  const dias = Array.from({ length: 7 }, (_, i) => addDays(l, i)).map(f => ({ f, ...(f > hoy ? { bal: null, fut: true } : balanceDia(f)) }));
+  const cerr = dias.filter(d => d.bal != null), tot = cerr.reduce((s, d) => s + d.bal, 0);
+  const enDef = cerr.filter(d => d.bal < 0).length, max = Math.max(500, ...cerr.map(d => Math.abs(d.bal)));
+  const cajas = dias.map((d, i) => {
+    const et = `<span class="hb-d">${DIAS[dow(d.f)]} <em>${+d.f.slice(8)}</em></span>`;
+    if (d.fut) return `<div class="hb-dia fut"><span class="hb-ic vacio"></span>${et}<b class="hb-txt">—</b></div>`;
+    if (d.bal == null) return `<div class="hb-dia ${d.f === hoy ? 'hoy' : 'vacio'}"><span class="hb-ic vacio"></span>${et}<b class="hb-txt">${d.f === hoy ? `En curso · ${fmt(d.kcal)} kcal` : d.comidas ? 'Sin cerrar' : 'Sin datos'}</b></div>`;
+    const def = d.bal < 0;
+    return `<div class="hb-dia ${def ? 'def' : 'sup'}" style="--w:${Math.round(Math.abs(d.bal) / max * 100)}%;--d:${i * 60}ms">
+      <i class="hb-fill"></i><span class="hb-ic">${def ? HB_OK : HB_KO}</span>${et}<b>${kcalTxt(d.bal)}<small> kcal</small></b></div>`;
   }).join('');
+  const puntos = dias.map(d => `<i class="${d.bal == null ? '' : d.bal < 0 ? 'def' : 'sup'}"></i>`).join('');
   return `<section class="hb-sem">
-    <header><b>${diaMes(l)} – ${diaMes(addDays(l, 6))}</b><small>${cerrados}/7 días cerrados</small></header>
+    <header><span><b>${diaMes(l)} – ${diaMes(addDays(l, 6))}</b><small>${cerr.length ? `${enDef} de ${cerr.length} ${cerr.length === 1 ? 'día' : 'días'} en déficit` : 'Aún sin días cerrados'}</small></span>
+      <span class="hb-puntos">${puntos}</span></header>
     <div class="hb-dias">${cajas}</div>
-    <footer class="hb-tot"><span>Balance semanal<small>${cerrados ? (tot < 0 ? `≈ ${kgTxt(tot)} kg de grasa` : 'Superávit') : 'Aún sin días cerrados'}</small></span>
-      <b>${cerrados ? `${kcalTxt(tot)}<small> kcal</small>` : '—'}</b></footer>
+    <footer class="hb-tot ${cerr.length ? (tot < 0 ? 'def' : 'sup') : ''}">
+      <span class="hb-ic">${cerr.length ? (tot < 0 ? HB_OK : HB_KO) : ''}</span>
+      <span class="grow">Balance semanal<small>${cerr.length ? (tot < 0 ? `≈ ${kgTxt(tot)} kg de grasa` : 'Superávit esta semana') : '—'}</small></span>
+      <b>${cerr.length ? `${kcalTxt(tot)}<small> kcal</small>` : '—'}</b></footer>
   </section>`;
 }
 function bloqueMes(ym, hoy) {
@@ -1133,36 +1155,90 @@ function irRunTab(k) {
   runTab = k; renderRun(ahora().fecha, b > a ? 'left' : 'right');
 }
 
-// Gestos: horizontal = cambiar de pestaña; vertical sobre la noria = girarla.
+// Gestos.
+// - Horizontal entre secciones (Nutrición ⇄ Running ⇄ Fuerza): la vista sigue al dedo, se suelta por distancia o
+//   velocidad, sale y entra animada, y el indicador de la barra inferior se desliza a la vez.
+// - En Running, el horizontal cambia antes de subpestaña; solo en la primera/última (o sobre el calendario) cambia de sección.
+// - Vertical sobre la noria = girarla.
+const ORDEN = ['nutri', 'run', 'fuerza'];
+function destinoGesto(dir, target) {
+  if (!ORDEN.includes(seccion)) return null;
+  if (seccion === 'run' && !target.closest('.semana') && RUN_TABS[RUN_TABS.findIndex(x => x[0] === runTab) + dir]) return 'subtab';
+  return ORDEN[ORDEN.indexOf(seccion) + dir] || null;
+}
+function moverIndicador(pos, animar = true) {
+  const ind = $('#tab-ind'); if (!ind) return;
+  ind.style.transition = animar ? '' : 'none';
+  ind.style.setProperty('--i', pos);
+  ind.style.opacity = pos == null ? 0 : 1;
+}
 function gestos() {
-  let x0 = 0, y0 = 0, t0 = 0, enRueda = false, enSemana = false;
+  const main = $('main');
+  const NO = '.meal-chips, .hist-track, #rueda, input, textarea, select, [data-noswipe]';
+  let x0 = 0, y0 = 0, t0 = 0, modo = null, destino = null, dir = 0, vista = null, objetivo = null;
+  main.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); objetivo = e.target;
+    modo = e.touches.length > 1 || e.target.closest(NO) ? 'no' : null;
+    vista = $(`#v-${seccion}`);
+  }, { passive: true });
+  main.addEventListener('touchmove', e => {
+    if (modo === 'no' || modo === 'v' || modo === 'sub') return;
+    const t = e.touches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    if (!modo) {
+      if (Math.hypot(dx, dy) < 10) return;
+      if (Math.abs(dx) < Math.abs(dy) * 1.2) { modo = 'v'; return; }
+      dir = dx < 0 ? 1 : -1;
+      destino = destinoGesto(dir, objetivo);
+      if (destino === 'subtab') { modo = 'sub'; return; }     // lo resuelve el cambio de subpestaña al soltar
+      modo = 'h';
+      vista.style.transition = 'none';
+    }
+    e.preventDefault();                                       // sin scroll vertical mientras se arrastra en horizontal
+    const ahoraDir = dx < 0 ? 1 : -1;                         // si cambia de sentido a mitad, se recalcula el destino
+    if (ahoraDir !== dir) { dir = ahoraDir; destino = destinoGesto(dir, objetivo); }
+    const libre = destino && destino !== 'subtab';
+    const d = libre ? dx : dx / 4;                            // sin sección al lado: resistencia elástica
+    vista.style.transform = `translateX(${d}px)`;
+    vista.style.opacity = String(1 - Math.min(0.4, Math.abs(d) / innerWidth * 0.6));
+    if (libre) moverIndicador(ORDEN.indexOf(seccion) + Math.max(-1, Math.min(1, -dx / innerWidth)), false);
+  }, { passive: false });
+  const soltar = e => {
+    if (modo === 'sub') {
+      const dx = e.changedTouches[0].clientX - x0;
+      if (Math.abs(dx) > 50) irRunTab(RUN_TABS[RUN_TABS.findIndex(x => x[0] === runTab) + (dx < 0 ? 1 : -1)][0]);
+    }
+    if (modo !== 'h') { modo = null; return; }
+    modo = null;
+    const dx = (e.changedTouches?.[0]?.clientX ?? x0) - x0, vel = Math.abs(dx) / Math.max(1, Date.now() - t0);
+    const sec = destino;
+    const va = sec && sec !== 'subtab' && (Math.abs(dx) > innerWidth * 0.25 || (vel > 0.45 && Math.abs(dx) > 40));
+    vista.style.transition = 'transform .22s cubic-bezier(.4,0,.2,1), opacity .22s';
+    if (!va) {                                                // vuelve a su sitio
+      vista.style.transform = ''; vista.style.opacity = '';
+      moverIndicador(ORDEN.indexOf(seccion));
+      return;
+    }
+    vista.style.transform = `translateX(${dx < 0 ? -100 : 100}%)`; vista.style.opacity = '0';
+    moverIndicador(ORDEN.indexOf(sec));
+    const v = vista;
+    setTimeout(() => {
+      v.style.transition = 'none'; v.style.transform = ''; v.style.opacity = '';
+      if (sec === 'run') runTab = 'resumen';
+      irA(sec, dx < 0 ? 'left' : 'right');
+    }, 200);
+  };
+  main.addEventListener('touchend', soltar, { passive: true });
+  main.addEventListener('touchcancel', soltar, { passive: true });
+
+  // Noria: vertical (dedo) o rueda del ratón.
   const v = $('#v-run');
-  v.addEventListener('touchstart', e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); enRueda = !!e.target.closest('#rueda'); enSemana = !!e.target.closest('.semana'); }, { passive: true });
+  let ry = 0, rx = 0, rt = 0;
+  v.addEventListener('touchstart', e => { const t = e.touches[0]; rx = t.clientX; ry = t.clientY; rt = Date.now(); }, { passive: true });
   v.addEventListener('touchend', e => {
-    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
-    if (Date.now() - t0 > 800) return;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.3) {
-      // Deslizar sobre el calendario semanal = cambiar de sección directamente.
-      if (enSemana) { dx < 0 ? irA('fuerza', 'left') : irA('nutri', 'right'); return; }
-      const i = RUN_TABS.findIndex(x => x[0] === runTab) + (dx < 0 ? 1 : -1);
-      if (RUN_TABS[i]) irRunTab(RUN_TABS[i][0]);
-      else if (i < 0) irA('nutri', 'right');           // desde Resumen, hacia la izquierda → Nutrición
-      else irA('fuerza', 'left');                       // desde Strava, hacia la derecha → Fuerza
-    } else if (enRueda && Math.abs(dy) > 35 && Math.abs(dy) > Math.abs(dx)) girarRueda(dy < 0 ? 1 : -1);
-  }, { passive: true });
-  // En Nutrición, deslizar hacia la derecha (dedo a la izquierda) → Running.
-  const n = $('#v-nutri');
-  n.addEventListener('touchstart', e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); }, { passive: true });
-  n.addEventListener('touchend', e => {
-    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
-    if (Date.now() - t0 < 800 && dx < -60 && Math.abs(dx) > Math.abs(dy) * 1.3) { runTab = 'resumen'; irA('run', 'left'); }
-  }, { passive: true });
-  // En Fuerza, deslizar hacia la izquierda (dedo a la derecha) → Running.
-  const fz = $('#v-fuerza');
-  fz.addEventListener('touchstart', e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); }, { passive: true });
-  fz.addEventListener('touchend', e => {
-    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
-    if (Date.now() - t0 < 800 && dx > 60 && Math.abs(dx) > Math.abs(dy) * 1.3) { runTab = 'resumen'; irA('run', 'right'); }
+    if (!e.target.closest('#rueda') || Date.now() - rt > 800) return;
+    const t = e.changedTouches[0], dx = t.clientX - rx, dy = t.clientY - ry;
+    if (Math.abs(dy) > 35 && Math.abs(dy) > Math.abs(dx)) girarRueda(dy < 0 ? 1 : -1);
   }, { passive: true });
   let bloqueo = 0;
   v.addEventListener('wheel', e => {
@@ -1996,24 +2072,15 @@ duracion_min en minutos decimales (tiempo en movimiento si aparece). Usa null si
 }
 
 // ---------- navegación ----------
-// Símbolos de la cabecera (sustituyen al nombre de la sección).
-const SEC_ICON = {
-  // Plato visto desde arriba con tenedor (izq.) y cuchillo (dcha.)
-  nutri: '<svg viewBox="0 0 48 48" class="sec-ico"><circle cx="24" cy="24" r="12.5"/><circle cx="24" cy="24" r="7.5" class="thin"/><path d="M3.5 6v7M6.5 6v7M9.5 6v7M3.5 13c0 2.5 1.3 3.5 3 3.5s3-1 3-3.5M6.5 16.5V42"/><path d="M44.5 6c-3 2.5-4.5 8-4.5 15h4.5M44.5 6v36"/></svg>',
-  run: '<svg viewBox="0 0 48 48" class="sec-ico"><circle cx="31" cy="8" r="4" class="fill"/><path d="M28 15l-6 12M22 27l7 5-3 11M22 27l-8 4-5-2M16 20l7-5 7 3 4 6"/><path d="M3 17h7M1 23h7M4 29h5" class="speed"/></svg>',
-  // Mancuerna
-  fuerza: '<svg viewBox="0 0 48 48" class="sec-ico"><path d="M13 12v24M35 12v24M7 17v14M41 17v14M13 24h22"/><path d="M3 24h4M41 24h4" class="thin"/></svg>',
-  ajustes: '<svg viewBox="0 0 24 24" class="sec-ico"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
-};
-
 function irA(sec, dir) {
   seccion = sec;
   document.body.dataset.sec = sec;
   ['nutri', 'run', 'fuerza', 'ajustes'].forEach(s => ($(`#v-${s}`).hidden = s !== sec));
   if (dir) { const v = $(`#v-${sec}`); v.classList.remove('slide-left', 'slide-right'); void v.offsetWidth; v.classList.add('slide-' + dir); }
   $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === sec));
+  moverIndicador(ORDEN.includes(sec) ? ORDEN.indexOf(sec) : null);
   const nombre = { nutri: 'Nutrición', run: 'Running', fuerza: 'Fuerza', ajustes: 'Ajustes' }[sec];
-  $('#titulo').innerHTML = SEC_ICON[sec];
+  $('#titulo').innerHTML = `<span class="sec-txt">${nombre}</span>`;   // mismo estilo que la palabra APEX
   $('#titulo').setAttribute('aria-label', nombre);
   $('#titulo').classList.remove('pop'); void $('#titulo').offsetWidth; $('#titulo').classList.add('pop');
   document.querySelector('meta[name=theme-color]').content = (matchMedia('(prefers-color-scheme: dark)').matches ? '#000000' : getComputedStyle(document.body).getPropertyValue('--acc').trim() || '#ff6a00');
