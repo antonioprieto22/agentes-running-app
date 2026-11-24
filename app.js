@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.10.0';
+const VERSION = '2.11.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -14,8 +14,9 @@ const FILES = {
   entrenos: 'running/entrenos.csv', peso: 'peso.csv', analisis: 'running/analisis.md',
   stravaEstado: 'running/strava-estado.json', stravaReg: 'running/strava.csv',
   fuerza: 'fuerza/sesiones.csv', rutinas: 'fuerza/rutinas.md', valoraciones: 'nutricion/valoraciones.csv',
+  recuperacion: 'running/recuperacion.csv',
 };
-const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg', 'fuerza', 'rutinas', 'valoraciones']);   // pueden no existir todavía
+const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg', 'fuerza', 'rutinas', 'valoraciones', 'recuperacion']);   // pueden no existir todavía
 const CLAUDE_URL = 'https://claude.ai/code';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const COMIDAS = ['desayuno', 'almuerzo', 'comida', 'merienda', 'cena', 'snack'];
@@ -503,6 +504,7 @@ function abrirHistorial() {
         <div class="hist-dots" id="hm-dots"></div></section>
     </div>`;
   el.hidden = false; document.body.classList.add('hist-on');
+  navPush();
   // Se abre en la semana y el mes actuales; lo anterior queda a la izquierda.
   requestAnimationFrame(() => {
     for (const [t, d] of [['#hb-track', '#hb-dots'], ['#hm-track', '#hm-dots']]) { $(t).scrollLeft = $(t).scrollWidth; paginar($(t), $(d)); }
@@ -519,6 +521,46 @@ function abrirHistorial() {
   $('#hist-x').addEventListener('click', cerrarHistorial);
 }
 function cerrarHistorial() { const el = $('#hist'); if (el) el.hidden = true; document.body.classList.remove('hist-on'); }
+
+// ---------- «Atrás» del sistema (gesto lateral de Android / botón atrás) ----------
+// Cada sección, subpestaña o capa abierta deja una entrada en el historial: «atrás» la deshace en vez de salir de la app.
+// Si una entrada ya no cambia nada (p. ej. la hoja se cerró con la X), se salta sola hasta la anterior que sí lo haga.
+let navPop = false;
+function capaAbierta() {
+  if ($('#hist') && !$('#hist').hidden) return 'hist';
+  if (!$('#inmersion').hidden) return 'inm';
+  if (!$('#sheet').hidden) return 'sheet';
+  return '';
+}
+const navEstado = () => ({ apex: 1, sec: seccion, rt: runTab, ov: capaAbierta() });
+function navPush() {
+  if (navPop) return;
+  const st = navEstado(), cur = history.state;
+  if (!cur?.apex) return history.replaceState(st, '');     // primera pantalla al abrir la app
+  if (cur.sec === st.sec && cur.rt === st.rt && cur.ov === st.ov) return;
+  history.pushState(st, '');
+}
+window.addEventListener('popstate', e => {
+  const st = e.state?.apex ? e.state : { sec: 'nutri', rt: 'resumen', ov: '' };
+  let cambio = false;
+  navPop = true;
+  try {
+    if (st.ov !== 'hist' && $('#hist') && !$('#hist').hidden) { cerrarHistorial(); cambio = true; }
+    if (st.ov !== 'inm' && !$('#inmersion').hidden && $('#inmersion').classList.contains('open')) {
+      const x = $('#im-close');
+      if (x) x.click(); else { $('#inmersion').hidden = true; document.body.classList.remove('inmerso'); }
+      cambio = true;
+    }
+    if (st.ov !== 'sheet' && !$('#sheet').hidden) { cerrarSheet(); cambio = true; }
+    if (st.sec !== seccion) {
+      if (st.sec === 'run' && st.rt) runTab = st.rt;
+      irA(st.sec, ORDEN.indexOf(st.sec) < ORDEN.indexOf(seccion) ? 'right' : 'left');
+      cambio = true;
+    } else if (st.sec === 'run' && st.rt && st.rt !== runTab) { irRunTab(st.rt); cambio = true; }
+  } finally { navPop = false; }
+  // Entrada "vacía" (nada que deshacer): se salta a la anterior. Desde la primera, «atrás» sale de la app.
+  if (!cambio) history.back();
+});
 
 // ---------- Fotos pendientes (IndexedDB, solo en este dispositivo) ----------
 // La foto se guarda antes de analizarla y se borra al terminar bien: si Gemini falla o se cierra la app, sigue aquí.
@@ -682,7 +724,7 @@ function renderRun(hoy, dir) {
   // Con el logro del día hecho, la noria se esconde tras un botón negro.
   const ocultarRueda = hoyE && ruedaN && !verProx;
   const sig = pend[0], dSig = sig && new Date(sig.fecha + 'T12:00:00Z');
-  body.innerHTML = `${chip}
+  body.innerHTML = `${chip}${recuperacionHTML()}
     ${ocultarRueda ? `<button class="btn-negro" id="btn-prox">
         <span class="bn-sym">${SIMBOLO[tipoSesion(`${sig.sesion} ${sig.detalle}`)]}</span>
         <span class="grow"><b>Próximas sesiones</b><small>${sig.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[dSig.getUTCDay()]} · ${esc(sig.sesion)}</small></span>
@@ -706,6 +748,7 @@ function renderRun(hoy, dir) {
     if (i !== ruedaIdx) { ruedaIdx = i; colocarRueda(); } else c.classList.toggle('flipped');
   }));
   $('#btn-prox')?.addEventListener('click', ev => abrirProximas(pend.map(tarjeta).join(''), pend.length, ev));
+  arrancarRecuperacion();
   if (hoyE) {
     $('#logro')?.addEventListener('click', ev => {
       if (aHoy) return inmersion(hoyE, ev);
@@ -722,6 +765,69 @@ function renderRun(hoy, dir) {
     fallidos.delete(refDe(ultima)); renderRun(hoy); analizarAuto(ultima);
   });
   if (ultima && !aUlt && !fallo && cfg.gemini) analizarAuto(ultima);
+}
+
+// ---------- Tiempo de recuperación (Mi Fitness o estimado por APEX) ----------
+// running/recuperacion.csv: fecha (de la sesión), hasta (AAAA-MM-DD HH:MM, hora de Madrid), horas, fuente.
+// Las horas se comparan como "hora de Madrid sin zona" (mismo reloj en ambos lados).
+const RECUP_COLS = ['fecha', 'hasta', 'horas', 'fuente'];
+const tsMadrid = s => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10), +s.slice(11, 13) || 0, +s.slice(14, 16) || 0, +s.slice(17, 19) || 0);
+function ahoraTs() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  return tsMadrid(`${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`);
+}
+const fmtTs = ts => new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
+// Momento desde el que cuenta: la hora de fin si se conoce; si la sesión es de hoy, ahora; si no, ese día a las 20:00.
+function baseRecuperacion(fecha, fin) {
+  if (/^\d{1,2}:\d{2}$/.test(fin || '')) return tsMadrid(`${fecha} ${fin.padStart(5, '0')}`);
+  return fecha === ahora().fecha ? ahoraTs() : tsMadrid(`${fecha} 20:00`);
+}
+const guardarRecuperacion = (fecha, horas, fuente, fin) => {
+  const h = Math.round(num(horas) * 10) / 10;
+  if (!(h > 0 && h <= 120)) return Promise.resolve();
+  const hasta = fmtTs(baseRecuperacion(fecha, fin) + h * 36e5);
+  return modify('recuperacion', t => {
+    const ls = (t.trim() ? t : RECUP_COLS.join(',')).split('\n').filter(l => l.trim() && !l.startsWith(fecha + ','));
+    return [...ls, toLine(RECUP_COLS, { fecha, hasta, horas: h, fuente })].join('\n');
+  }, `recuperación ${fecha} (${h} h)`);
+};
+function recuperacionHTML() {
+  const r = csv('recuperacion').rows.filter(x => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(x.hasta)).sort((a, b) => a.hasta.localeCompare(b.hasta)).at(-1);
+  if (!r) return '';
+  const fin = tsMadrid(r.hasta), ini = fin - (num(r.horas) || 24) * 36e5;
+  if (ahoraTs() > fin + 6 * 36e5) return '';                 // tras recuperarse, el aviso se queda 6 h
+  const dia = r.hasta.slice(0, 10), hoy = ahora().fecha;
+  const cuando = dia === hoy ? 'hoy' : dia === addDays(hoy, 1) ? 'mañana' : DIAS_LARGOS[dow(dia)];
+  return `<div class="recup" id="recup" data-ini="${ini}" data-fin="${fin}">
+    <span class="rc-ic"><svg viewBox="0 0 24 24"><path d="M7 3.5h10M7 20.5h10M8 3.5c0 4.5 8 4.5 8 8.5s-8 4-8 8.5M16 3.5c0 4.5-8 4.5-8 8.5s8 4 8 8.5"/></svg></span>
+    <span class="grow"><small>Recuperación · ${norm(r.fuente).includes('fitness') ? 'Mi Fitness' : 'estimada por APEX'}</small>
+      <b class="rc-t" id="rc-t">—</b>
+      <span class="rc-sub" id="rc-sub">hasta ${cuando} a las ${r.hasta.slice(11)}</span></span>
+    <i class="rc-bar"><em id="rc-bar"></em></i>
+  </div>`;
+}
+let recupTimer = 0;
+function arrancarRecuperacion() {
+  clearInterval(recupTimer);
+  const el = $('#recup'); if (!el) return;
+  const ini = +el.dataset.ini, fin = +el.dataset.fin, sub = $('#rc-sub').textContent;
+  const tic = () => {
+    if (!el.isConnected) return clearInterval(recupTimer);
+    const ahoraMs = ahoraTs(), falta = fin - ahoraMs;
+    if (falta <= 0) {
+      el.classList.add('listo');
+      $('#rc-t').textContent = 'Recuperado';
+      $('#rc-sub').textContent = 'Listo para volver a entrenar';
+      $('#rc-bar').style.width = '100%';
+      return clearInterval(recupTimer);
+    }
+    const s = Math.floor(falta / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sg = s % 60;
+    $('#rc-t').textContent = `${h ? h + ' h ' : ''}${String(m).padStart(h ? 2 : 1, '0')} min ${String(sg).padStart(2, '0')} s`;
+    $('#rc-sub').textContent = sub;
+    $('#rc-bar').style.width = `${Math.max(0, Math.min(100, (ahoraMs - ini) / (fin - ini) * 100))}%`;
+  };
+  tic(); recupTimer = setInterval(tic, 1000);
 }
 
 // Tarjeta de sesión de la noria (cara: día + símbolo + nombre; dorso: detalle).
@@ -1153,6 +1259,7 @@ function irRunTab(k) {
   const a = RUN_TABS.findIndex(t => t[0] === runTab), b = RUN_TABS.findIndex(t => t[0] === k);
   if (a === b) return;
   runTab = k; renderRun(ahora().fecha, b > a ? 'left' : 'right');
+  navPush();
 }
 
 // Gestos.
@@ -1193,6 +1300,7 @@ function gestos() {
       if (destino === 'subtab') { modo = 'sub'; return; }     // lo resuelve el cambio de subpestaña al soltar
       modo = 'h';
       vista.style.transition = 'none';
+      vista.style.willChange = 'transform, opacity';          // la vista va por GPU mientras se arrastra
     }
     e.preventDefault();                                       // sin scroll vertical mientras se arrastra en horizontal
     const ahoraDir = dx < 0 ? 1 : -1;                         // si cambia de sentido a mitad, se recalcula el destino
@@ -1213,9 +1321,10 @@ function gestos() {
     const dx = (e.changedTouches?.[0]?.clientX ?? x0) - x0, vel = Math.abs(dx) / Math.max(1, Date.now() - t0);
     const sec = destino;
     const va = sec && sec !== 'subtab' && (Math.abs(dx) > innerWidth * 0.25 || (vel > 0.45 && Math.abs(dx) > 40));
-    vista.style.transition = 'transform .22s cubic-bezier(.4,0,.2,1), opacity .22s';
+    vista.style.transition = 'transform .15s cubic-bezier(.4,0,1,1), opacity .15s';
     if (!va) {                                                // vuelve a su sitio
-      vista.style.transform = ''; vista.style.opacity = '';
+      vista.style.transition = 'transform .25s cubic-bezier(.2,.9,.3,1.2), opacity .25s';
+      vista.style.transform = ''; vista.style.opacity = ''; vista.style.willChange = '';
       moverIndicador(ORDEN.indexOf(seccion));
       return;
     }
@@ -1223,10 +1332,10 @@ function gestos() {
     moverIndicador(ORDEN.indexOf(sec));
     const v = vista;
     setTimeout(() => {
-      v.style.transition = 'none'; v.style.transform = ''; v.style.opacity = '';
+      v.style.transition = 'none'; v.style.transform = ''; v.style.opacity = ''; v.style.willChange = '';
       if (sec === 'run') runTab = 'resumen';
       irA(sec, dx < 0 ? 'left' : 'right');
-    }, 200);
+    }, 140);
   };
   main.addEventListener('touchend', soltar, { passive: true });
   main.addEventListener('touchcancel', soltar, { passive: true });
@@ -1334,8 +1443,9 @@ ${planTxt}
 Analiza si la sesión se hizo bien respecto a lo planificado (ritmo, FC/zona, volumen, sensaciones) y qué mejorar.
 Después decide si hay que ajustar el plan de las próximas semanas. Solo propón cambios si los datos lo justifican; si no, "necesario": false.
 Si ajustas: solo fechas posteriores a ${fecha}, máximo 3 semanas, mantén los días de entrenamiento y el estilo del detalle (listo para programar en el reloj, con la alerta de FC).
+Estima también el tiempo de recuperación en horas como lo haría Mi Fitness (rodaje suave 12–24 · rodaje exigente 24–36 · series o tempo 36–48 · tirada larga o competición 48–72), según intensidad, FC, RPE y carga reciente.
 Responde SOLO JSON:
-{"valoracion":"bien|regular|mejorable","titulo":"frase corta (máx 8 palabras)","positivo":["máx 3, frases cortas"],"mejorar":["máx 3, frases cortas"],
+{"recuperacion_h":24,"valoracion":"bien|regular|mejorable","titulo":"frase corta (máx 8 palabras)","positivo":["máx 3, frases cortas"],"mejorar":["máx 3, frases cortas"],
 "ajuste":{"necesario":false,"motivo":"una frase","sesiones":[{"fecha":"AAAA-MM-DD","dia":"mar","sesion":"rodaje Z2","detalle":"..."}]}}`;
 }
 async function analizarSesion(e) {
@@ -1359,6 +1469,8 @@ async function analizarSesion(e) {
     ...ses.map(s => `<!-- plan:${s.fecha}|${limpio(s.dia)}|${limpio(s.sesion)}|${limpio(s.detalle)} -->`),
   ].join('\n');
   await modify('analisis', t => t.replace(/\n*$/, '\n\n') + bloque + '\n', `análisis ${e.fecha} ${e.tipo}`);
+  // Sin el dato de Mi Fitness, la recuperación la estima APEX (nunca pisa la de Mi Fitness).
+  if (!csv('recuperacion').rows.some(r => r.fecha === e.fecha)) await guardarRecuperacion(e.fecha, out.recuperacion_h, 'estimado').catch(() => {});
   return bloque;
 }
 function propuestaDe(a) {
@@ -1411,6 +1523,7 @@ function abrirCapa(ev, clase, html) {
   ov.innerHTML = html;
   ov.hidden = false;
   document.body.classList.add('inmerso');
+  navPush();
   requestAnimationFrame(() => requestAnimationFrame(() => ov.classList.add('open')));
   const cerrar = () => {
     ov.classList.remove('open');
@@ -1484,6 +1597,7 @@ function inmersion(e, ev) {
     </div>`;
   ov.hidden = false;
   document.body.classList.add('inmerso');
+  navPush();
   requestAnimationFrame(() => requestAnimationFrame(() => ov.classList.add('open')));
   const cerrar = () => {
     ov.classList.remove('open');
@@ -1564,6 +1678,7 @@ let stream = null;
 
 function abrirSheet(vista) {
   $('#sheet').hidden = false;
+  navPush();
   if (seccion === 'fuerza') return formFuerza();
   if (seccion === 'run') { $('#sheet-title').textContent = 'Registrar entreno'; $('#sheet-body').innerHTML = '<div id="seg-body"></div>'; formEntreno(); return; }
   comidaSel ??= comidaPorHora(ahora().h);
@@ -2023,12 +2138,14 @@ function formEntreno() {
     <button class="btn primary" id="e-save">Guardar entreno</button>
     <p class="muted">Si la sesión ya llegó de Strava, se completa con tu RPE y notas en vez de duplicarla.</p>
   </div>`;
+  let recup = null;   // tiempo de recuperación leído de la captura de Mi Fitness
   const leerCaptura = async file => {
     $('#e-estado').innerHTML = '<i class="spinner"></i> Leyendo la captura…';
     try {
       const x = await geminiJSON(`Extrae los datos de esta captura de una app o reloj de running (Mi Fitness, Strava, Xiaomi…).
-Responde SOLO JSON: {"fecha":"AAAA-MM-DD o null","tipo":"rodaje|series|tempo|tirada|fartlek|cuestas|competicion","distancia_km":0,"duracion_min":0,"fc_media":null,"fc_max":null,"cadencia":null,"desnivel_m":null,"extra":"parciales u otros datos útiles, breve"}
-duracion_min en minutos decimales (tiempo en movimiento si aparece). Usa null si un dato no aparece.`, await fotoBase64(file));
+Responde SOLO JSON: {"fecha":"AAAA-MM-DD o null","tipo":"rodaje|series|tempo|tirada|fartlek|cuestas|competicion","distancia_km":0,"duracion_min":0,"fc_media":null,"fc_max":null,"cadencia":null,"desnivel_m":null,"recuperacion_h":null,"hora_fin":null,"extra":"parciales u otros datos útiles, breve"}
+duracion_min en minutos decimales (tiempo en movimiento si aparece). recuperacion_h = "Tiempo de recuperación" en horas (Mi Fitness lo destaca al acabar). hora_fin = hora de fin de la sesión "HH:MM" si aparece (o la de inicio + duración). Usa null si un dato no aparece.`, await fotoBase64(file));
+      recup = num(x.recuperacion_h) > 0 ? { h: num(x.recuperacion_h), fin: x.hora_fin || '' } : null;
       if (x.fecha && /^\d{4}-\d{2}-\d{2}$/.test(x.fecha)) $('#e-f').value = x.fecha;
       if (x.tipo) $('#e-tipo').value = x.tipo;
       if (x.distancia_km) $('#e-km').value = r1(num(x.distancia_km) * 100) / 100;
@@ -2036,7 +2153,7 @@ duracion_min en minutos decimales (tiempo en movimiento si aparece). Usa null si
       if (x.fc_media) $('#e-fc').value = Math.round(num(x.fc_media));
       const extra = [x.fc_max && `FC máx ${x.fc_max}`, x.cadencia && `cadencia ${x.cadencia}`, x.desnivel_m && `D+${x.desnivel_m}`, x.extra].filter(Boolean).map(limpio).join('; ');
       if (extra) $('#e-notas').value = extra;
-      $('#e-estado').textContent = '✓ Datos leídos. Añade tu RPE y sensaciones y guarda.';
+      $('#e-estado').textContent = `✓ Datos leídos${recup ? ` · recuperación ${recup.h} h` : ''}. Añade tu RPE y sensaciones y guarda.`;
     } catch (err) { $('#e-estado').textContent = err.message; }
   };
   ['#e-cam', '#e-gal'].forEach(s => $(s).addEventListener('change', ev => ev.target.files[0] && leerCaptura(ev.target.files[0])));
@@ -2059,6 +2176,7 @@ duracion_min en minutos decimales (tiempo en movimiento si aparece). Usa null si
           desnivel_m: '', fc_media: $('#e-fc').value, rpe: rpe || '', carga: rpe ? Math.round(rpe * min) : '', notas, fuente: 'manual', strava_id: '' };
         await appendLines('entrenos', [toLine(header, fila)], `entreno ${f} ${km} km`);
       }
+      if (recup) await guardarRecuperacion(f, recup.h, 'mi fitness', recup.fin).catch(() => {});
       // Análisis del entrenador sobre la sesión guardada
       const guardada = csv('entrenos').rows.filter(r => r.fecha === f).at(-1);
       if (guardada && cfg.gemini) {
@@ -2079,6 +2197,7 @@ function irA(sec, dir) {
   if (dir) { const v = $(`#v-${sec}`); v.classList.remove('slide-left', 'slide-right'); void v.offsetWidth; v.classList.add('slide-' + dir); }
   $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === sec));
   moverIndicador(ORDEN.includes(sec) ? ORDEN.indexOf(sec) : null);
+  navPush();
   const nombre = { nutri: 'Nutrición', run: 'Running', fuerza: 'Fuerza', ajustes: 'Ajustes' }[sec];
   $('#titulo').innerHTML = `<span class="sec-txt">${nombre}</span>`;   // mismo estilo que la palabra APEX
   $('#titulo').setAttribute('aria-label', nombre);
