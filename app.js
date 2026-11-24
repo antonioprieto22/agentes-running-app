@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.1.2';
+const VERSION = '2.2.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -476,6 +476,8 @@ function tarjetaHTML(x, i, hoy) {
   const d = new Date(x.fecha + 'T12:00:00Z'), t = tipoSesion(`${x.sesion} ${x.detalle}`);
   const cuando = x.fecha === hoy ? 'Hoy' : x.fecha === addDays(hoy, 1) ? 'Mañana' : DIAS_LARGOS[d.getUTCDay()];
   const partes = x.detalle.split(/\s+\+\s+|\s+·\s+/).filter(Boolean);
+  const fichas = partes.map(fichaDetalle);
+  const porTiempo = /\d+\s*s\b|rondas/.test(norm(x.detalle)) && t === 'fuerza';
   return `<div class="next t-${t}" data-i="${i}"><div class="flip">
     <div class="face cara">
       <span class="next-when">${cuando} · ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span>
@@ -484,10 +486,22 @@ function tarjetaHTML(x, i, hoy) {
       <span class="tap-hint">Toca para ver la sesión</span>
     </div>
     <div class="face dorso">
-      <b>${esc(x.sesion)}</b>
-      <ul>${partes.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
+      <span class="dorso-tit">${SIMBOLO[t]}<b>${esc(x.sesion)}</b></span>
+      <div class="fichas ${fichas.length > 4 ? 'dos' : ''}">${fichas.map(f =>
+        `<div class="ficha ${f.tipo}"><b>${esc(f.num || '•')}</b><span>${esc(f.txt)}</span></div>`).join('')}</div>
+      ${porTiempo ? `<button class="tabata-go" data-tabata="${encodeURIComponent(x.sesion + '|' + x.detalle)}">⏱ Iniciar con temporizador</button>` : ''}
     </div>
   </div></div>`;
+}
+// Separa cada parte del detalle en "cifra clave" + descripción (p. ej. "3×13" + "Flexiones").
+function fichaDetalle(p) {
+  const m = p.match(/\d+\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:m\b|s\b|min\b)?(?:\s*\(total\)|\/pierna)?|\d{1,2}:\d{2}(?:[–-]\d{1,2}:\d{2})?|\d+(?:[.,]\d+)?\s*km|\d+\s*s\b|\d+\s*rondas?|\d{3}\s*[–-]\s*\d{3}/i);
+  const num = m ? m[0].replace(/\s+/g, ' ').trim() : '';
+  let txt = m ? (p.slice(0, m.index) + p.slice(m.index + m[0].length)).replace(/\s{2,}/g, ' ').replace(/^[\s:·,-]+|[\s:·,-]+$/g, '') : p;
+  const n = norm(p);
+  const tipo = /calentamiento/.test(n) ? 'cal' : /enfriamiento/.test(n) ? 'enf' : /alerta|fc/.test(n) ? 'fc' : /descarga/.test(n) ? 'desc' : /finisher/.test(n) ? 'fin' : '';
+  if (!txt) txt = /km/.test(num) ? 'distancia' : /:/.test(num) ? 'duración' : '';
+  return { num, txt, tipo };
 }
 const pendRun = hoy => {
   const hechos = new Set(csv('entrenos').rows.map(e => e.fecha));
@@ -538,6 +552,7 @@ function renderFuerza(hoy) {
   const rts = rutinas();
   $('#v-fuerza').innerHTML = `
     ${semanaHTML(hoy)}
+    <button class="btn-negro tb-acceso" id="btn-tabata"><span class="bn-sym">⏱</span><span class="grow"><b>Temporizador Tabata</b><small>Con sonido y voz · core, tabata, isométricos</small></span><span class="bn-arrow">›</span></button>
     ${hoyS ? `<div class="logro fz-logro"><span class="logro-tag">🏋️ Fuerza completada</span>
         <span class="sym big">${MINI.fuerza}</span>
         <b class="logro-km cap" style="font-size:34px">${esc(hoyS.rutina)}</b>
@@ -556,6 +571,7 @@ function renderFuerza(hoy) {
           <span class="tag">${s.rpe ? 'RPE ' + esc(s.rpe) : '—'}</span></div>`;
       }).join('') || '<div class="empty">Aún no has registrado sesiones de fuerza.</div>'}</div>`;
   bindSemana(hoy);
+  $('#btn-tabata').addEventListener('click', ev => abrirTabata(ev));
   $$('#rueda .next').forEach(c => { c.classList.add('pos0'); c.addEventListener('click', () => c.classList.toggle('flipped')); });
 }
 function formFuerza() {
@@ -579,6 +595,217 @@ function formFuerza() {
     catch (e) { toast(e.message); }
   });
 }
+
+// ---------- Temporizador Tabata (sonido + voz + vibración) ----------
+let tbPref = { sonido: true, voz: true };
+try { Object.assign(tbPref, JSON.parse(localStorage.getItem('tabata') || '{}')); } catch { /* sin almacenamiento */ }
+const TB = { seq: [], i: 0, t0: 0, quedaba: 0, pausa: false, timer: null, ctx: null, lock: null, seg: null, rutina: '' };
+
+function beep(f = 880, d = 0.15, v = 0.3) {
+  if (!tbPref.sonido) return;
+  try {
+    const c = TB.ctx ||= new (window.AudioContext || window.webkitAudioContext)();
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(v, c.currentTime); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + d);
+    o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + d);
+  } catch { /* sin audio */ }
+}
+function decir(t) {
+  if (!tbPref.voz || !('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(t); u.lang = 'es-ES'; u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+
+// Secuencia de intervalos. modo 'ejercicio' = todas las rondas de un ejercicio antes del siguiente; 'circuito' = vuelta completa.
+function secuencia({ ejercicios, rondas, trabajo, descanso, modo = 'ejercicio', finisher }) {
+  const s = [{ tipo: 'prep', dur: 10, nombre: 'Prepárate' }];
+  const bloques = [];
+  if (modo === 'ejercicio') ejercicios.forEach((e, k) => { for (let r = 1; r <= rondas; r++) bloques.push({ nombre: e, info: `${k + 1}/${ejercicios.length} · serie ${r}/${rondas}` }); });
+  else for (let r = 1; r <= rondas; r++) ejercicios.forEach((e, k) => bloques.push({ nombre: e, info: `vuelta ${r}/${rondas} · ${k + 1}/${ejercicios.length}` }));
+  bloques.forEach((b, k) => {
+    s.push({ tipo: 'trabajo', dur: trabajo, ...b });
+    if (k < bloques.length - 1 || finisher) s.push({ tipo: 'descanso', dur: descanso, nombre: 'Descanso' });
+  });
+  if (finisher) s.push({ tipo: 'trabajo', dur: finisher.dur, nombre: finisher.nombre, info: 'finisher' });
+  return s;
+}
+// Preset a partir de una sesión del plan (p. ej. core: "2 rondas × 20 s · Crunch… · Finisher plancha codos 30 s").
+function presetDesdeDetalle(sesion, detalle) {
+  const partes = detalle.split(/\s+·\s+/).map(p => p.trim()).filter(Boolean);
+  const n = norm(detalle);
+  const rondas = +((n.match(/(\d+)\s*rondas?/) || [])[1] || (/descarga/.test(n) ? 1 : 2));
+  const trabajo = +((n.match(/rondas?\s*[x×]\s*(\d+)\s*s/) || [])[1] || 20);
+  const finP = partes.find(p => /^finisher/i.test(p));
+  const finisher = finP ? { nombre: finP.replace(/^finisher:?\s*/i, '').replace(/\s*\d+\s*s$/, ''), dur: +((finP.match(/(\d+)\s*s$/) || [])[1] || 30) } : null;
+  const ejercicios = partes.filter(p => !/rondas?|^finisher|^descarga/i.test(p));
+  return { titulo: sesion.replace(/^fuerza\s*/i, ''), ejercicios, rondas, trabajo, descanso: 20, modo: 'ejercicio', finisher };
+}
+function presetsRutinas() {
+  const txt = D.rutinas?.text || '', out = [];
+  for (const m of txt.matchAll(/(?:^|\n)## (core [^\n]+)\n([\s\S]*?)(?=\n## |$)/g)) {
+    const lineas = m[2].split('\n').map(l => l.replace(/^-\s*/, '').trim());
+    const ej = lineas.find(l => l.includes(' · ') && !/^d[ií]as|^formato/i.test(l));
+    const fin = lineas.find(l => /^finisher/i.test(l));
+    if (ej) out.push(presetDesdeDetalle(m[1], `2 rondas × 20 s · ${ej}${fin ? ' · ' + fin.replace(/,\s*/, ' ') : ''}`));
+  }
+  return out;
+}
+
+function abrirTabata(ev, preset) {
+  const cerrar = abrirCapa(ev, 'im-timer', `
+    <button class="im-close" id="im-close" aria-label="Cerrar">${ICON_X}</button>
+    <div class="tb" id="tb"></div>`);
+  $('#im-close').addEventListener('click', tbParar);
+  TB.cerrar = cerrar;
+  preset ? tbPreparar(preset) : tbMenu();
+}
+function tbMenu() {
+  const { fecha } = ahora();
+  const prox = planRows().find(x => x.fecha >= fecha && /core/.test(norm(x.sesion)));
+  const presets = [
+    ...(prox ? [{ ...presetDesdeDetalle(prox.sesion, prox.detalle), etiqueta: `${prox.fecha === fecha ? 'Hoy' : 'Próximo'}: ${prox.sesion.replace(/^fuerza\s*/i, '')}` }] : []),
+    ...presetsRutinas(),
+    { titulo: 'Tabata clásico', ejercicios: ['Tabata'], rondas: 8, trabajo: 20, descanso: 10, modo: 'circuito' },
+    { titulo: 'Isométrica en pared', ejercicios: ['Sentadilla isométrica en pared'], rondas: 2, trabajo: 30, descanso: 60, modo: 'circuito' },
+  ];
+  $('#tb').innerHTML = `
+    <h2 class="tb-h">⏱ Temporizador</h2>
+    <div class="tb-presets">${presets.map((p, k) => `<button class="tb-pre" data-pre="${k}">
+      <b>${esc(p.etiqueta || p.titulo)}</b>
+      <span>${p.ejercicios.length > 1 ? p.ejercicios.length + ' ejercicios · ' : ''}${p.rondas} × ${p.trabajo} s / ${p.descanso} s${p.finisher ? ' · finisher' : ''}</span></button>`).join('')}</div>
+    <details class="tb-custom"><summary>Personalizado</summary>
+      <div class="tb-grid">
+        <label>Trabajo (s)<input id="tb-w" type="number" inputmode="numeric" value="20"></label>
+        <label>Descanso (s)<input id="tb-r" type="number" inputmode="numeric" value="10"></label>
+        <label>Rondas<input id="tb-n" type="number" inputmode="numeric" value="8"></label>
+      </div>
+      <label>Ejercicios (opcional, separados por comas)<input id="tb-e" placeholder="Plancha, Bicicleta, Nadador"></label>
+      <button class="im-btn" id="tb-custom-go">Preparar</button>
+    </details>
+    <div class="tb-prefs">
+      <label class="check"><input type="checkbox" id="tb-snd" ${tbPref.sonido ? 'checked' : ''}> Sonido</label>
+      <label class="check"><input type="checkbox" id="tb-voz" ${tbPref.voz ? 'checked' : ''}> Voz</label>
+    </div>`;
+  const guardarPref = () => { tbPref = { sonido: $('#tb-snd').checked, voz: $('#tb-voz').checked }; try { localStorage.setItem('tabata', JSON.stringify(tbPref)); } catch { /* */ } };
+  $('#tb-snd').addEventListener('change', guardarPref); $('#tb-voz').addEventListener('change', guardarPref);
+  $$('[data-pre]').forEach(b => b.addEventListener('click', () => tbPreparar(presets[+b.dataset.pre])));
+  $('#tb-custom-go').addEventListener('click', () => {
+    const ej = $('#tb-e').value.split(',').map(s => s.trim()).filter(Boolean);
+    tbPreparar({ titulo: 'Personalizado', ejercicios: ej.length ? ej : ['Trabajo'], rondas: Math.max(1, +$('#tb-n').value || 1),
+      trabajo: Math.max(5, +$('#tb-w').value || 20), descanso: Math.max(0, +$('#tb-r').value || 0), modo: ej.length > 1 ? 'circuito' : 'circuito' });
+  });
+}
+function tbPreparar(p) {
+  TB.seq = secuencia(p); TB.rutina = p.titulo; TB.i = 0; TB.pausa = false;
+  const total = TB.seq.reduce((s, x) => s + x.dur, 0);
+  $('#tb').innerHTML = `
+    <h2 class="tb-h">${esc(p.titulo)}</h2>
+    <p class="tb-sub">${fmtSeg(total)} en total · ${TB.seq.filter(x => x.tipo === 'trabajo').length} intervalos de trabajo</p>
+    <ol class="tb-lista">${p.ejercicios.map(e => `<li>${esc(e)}</li>`).join('')}${p.finisher ? `<li class="fin">Finisher: ${esc(p.finisher.nombre)} · ${p.finisher.dur} s</li>` : ''}</ol>
+    <button class="tb-start" id="tb-start">▶ Empezar</button>
+    <button class="tb-link" id="tb-back">‹ Otros temporizadores</button>`;
+  $('#tb-start').addEventListener('click', tbEmpezar);
+  $('#tb-back').addEventListener('click', tbMenu);
+}
+const fmtSeg = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+const TB_R = 120, TB_C = 2 * Math.PI * TB_R;
+
+async function tbEmpezar() {
+  beep(1, 0.01, 0.001);   // desbloquea el audio con el toque del usuario
+  try { TB.lock = await navigator.wakeLock?.request('screen'); } catch { TB.lock = null; }
+  $('#tb').innerHTML = `
+    <div class="tb-run">
+      <span class="tb-fase" id="tb-fase"></span>
+      <div class="tb-ring">
+        <svg viewBox="0 0 260 260"><g transform="rotate(-90 130 130)">
+          <circle cx="130" cy="130" r="${TB_R}" class="tb-track"/>
+          <circle cx="130" cy="130" r="${TB_R}" class="tb-arc" id="tb-arc" stroke-dasharray="${TB_C}"/></g></svg>
+        <div class="tb-num"><b id="tb-s">0</b><span id="tb-info"></span></div>
+      </div>
+      <b class="tb-ej" id="tb-ej"></b>
+      <span class="tb-next" id="tb-next"></span>
+      <div class="tb-ctrl">
+        <button id="tb-pause" aria-label="Pausa">⏸</button>
+        <button id="tb-skip" aria-label="Saltar">⏭</button>
+      </div>
+      <div class="tb-prog"><i id="tb-prog"></i></div>
+    </div>`;
+  $('#tb-pause').addEventListener('click', tbPausa);
+  $('#tb-skip').addEventListener('click', () => tbEntrar(TB.i + 1));
+  TB.inicio = Date.now();
+  tbEntrar(0);
+  clearInterval(TB.timer);
+  TB.timer = setInterval(tbTick, 100);
+}
+function tbEntrar(i) {
+  TB.i = i; TB.seg = null; TB.t0 = Date.now(); TB.pausa = false;
+  const p = TB.seq[i];
+  if (!p) return tbFin();
+  const sig = TB.seq.slice(i + 1).find(x => x.tipo === 'trabajo');
+  const ov = $('#inmersion'); ov.dataset.fase = p.tipo;
+  $('#tb-fase').textContent = { prep: 'PREPÁRATE', trabajo: '¡DALE!', descanso: 'DESCANSO' }[p.tipo];
+  $('#tb-ej').textContent = p.tipo === 'descanso' ? (sig ? sig.nombre : '') : p.nombre;
+  $('#tb-next').textContent = p.tipo === 'trabajo' ? (sig ? `Siguiente: ${sig.nombre}` : 'Último intervalo') : p.tipo === 'descanso' ? 'Siguiente' : '';
+  $('#tb-info').textContent = p.info || '';
+  $('#tb-prog').style.width = `${(i / TB.seq.length) * 100}%`;
+  $('#tb-pause').textContent = '⏸';
+  if (p.tipo === 'trabajo') { beep(1320, 0.45); navigator.vibrate?.([120, 60, 120]); decir(p.nombre); }
+  else if (p.tipo === 'descanso') { beep(660, 0.45); navigator.vibrate?.(200); decir(sig ? `Descanso. Siguiente: ${sig.nombre}` : 'Descanso'); }
+  else decir(`Prepárate. Empezamos con ${sig ? sig.nombre : 'el primer ejercicio'}`);
+}
+function tbTick() {
+  const p = TB.seq[TB.i];
+  if (!p || TB.pausa) return;
+  const quedan = Math.max(0, p.dur - (Date.now() - TB.t0) / 1000);
+  const seg = Math.ceil(quedan);
+  if (seg !== TB.seg) {
+    TB.seg = seg;
+    $('#tb-s').textContent = seg;
+    if (seg <= 3 && seg > 0) { beep(880, 0.12); navigator.vibrate?.(40); }
+  }
+  $('#tb-arc').setAttribute('stroke-dashoffset', TB_C * (1 - quedan / p.dur));
+  if (quedan <= 0) tbEntrar(TB.i + 1);
+}
+function tbPausa() {
+  const p = TB.seq[TB.i]; if (!p) return;
+  if (!TB.pausa) { TB.pausa = true; TB.quedaba = p.dur - (Date.now() - TB.t0) / 1000; $('#tb-pause').textContent = '▶'; speechSynthesis?.cancel(); }
+  else { TB.pausa = false; TB.t0 = Date.now() - (p.dur - TB.quedaba) * 1000; $('#tb-pause').textContent = '⏸'; }
+}
+function tbFin() {
+  clearInterval(TB.timer);
+  const min = Math.max(1, Math.round((Date.now() - TB.inicio) / 60000));
+  beep(1320, 0.2); setTimeout(() => beep(1320, 0.2), 260); setTimeout(() => beep(1760, 0.6), 520);
+  navigator.vibrate?.([200, 100, 200, 100, 400]);
+  decir('Entrenamiento completado. ¡Buen trabajo!');
+  $('#inmersion').dataset.fase = 'fin';
+  $('#tb').innerHTML = `<div class="tb-done"><span class="tb-trofeo">🏆</span><b>¡Completado!</b><span>${esc(TB.rutina)} · ${min} min</span>
+    <button class="tb-start" id="tb-reg">Registrar sesión</button><button class="tb-link" id="tb-otra">Otro temporizador</button></div>`;
+  liberarPantalla();
+  $('#tb-reg').addEventListener('click', () => {
+    const rut = TB.rutina; TB.cerrar?.();
+    setTimeout(() => {
+      irA('fuerza'); abrirSheet();
+      $('#z-min').value = min;
+      const sel = $('#z-rut'); const op = [...sel.options].find(o => norm(o.value) === norm(rut));
+      if (op) sel.value = op.value; else { sel.add(new Option(rut, rut, true, true)); }
+    }, 600);
+  });
+  $('#tb-otra').addEventListener('click', tbMenu);
+}
+function liberarPantalla() { try { TB.lock?.release(); } catch { /* */ } TB.lock = null; }
+function tbParar() { clearInterval(TB.timer); TB.timer = null; speechSynthesis?.cancel?.(); liberarPantalla(); }
+document.addEventListener('visibilitychange', async () => {
+  if (!document.hidden && TB.timer && !TB.lock) { try { TB.lock = await navigator.wakeLock?.request('screen'); } catch { /* */ } }
+});
+// Botón "Iniciar con temporizador" dentro de una tarjeta: no debe girar la tarjeta.
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-tabata]'); if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  const [sesion, detalle] = decodeURIComponent(b.dataset.tabata).split('|');
+  abrirTabata(e, presetDesdeDetalle(sesion, detalle));
+}, true);
 
 // Tipo de sesión → símbolo propio.
 function tipoSesion(txt) {
