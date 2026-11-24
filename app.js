@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.3.0';
+const VERSION = '2.3.1';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -576,9 +576,13 @@ function verRutinas(ev) {
   const txt = D.rutinas?.text || '';
   const secciones = [...txt.matchAll(/(?:^|\n)## ([^\n]+)\n([\s\S]*?)(?=\n## |$)/g)].map(m => {
     const lineas = m[2].split('\n').map(l => l.replace(/^-\s*/, '').trim()).filter(Boolean);
-    const meta = lineas.filter(l => /^(d[ií]as|formato|solo si)/i.test(l));
-    const ej = lineas.filter(l => !meta.includes(l)).flatMap(l => l.split(/\s+·\s+/));
-    return { nombre: m[1], meta: meta.join(' · '), ej };
+    // Solo se muestra el formato (sin días, duración ni impacto en piernas).
+    const info = lineas.filter(l => /^(d[ií]as|formato|solo si)/i.test(l));
+    const ej = lineas.filter(l => !info.includes(l)).flatMap(l => l.split(/\s+·\s+/));
+    const formato = info.find(l => /^formato/i.test(l))?.replace(/^formato:?\s*/i, '')
+      || (info.find(l => /^solo si/i.test(l))?.split(' · ').find(x => /trabajo|descanso/.test(x)))
+      || (ej.some(x => /\d+\s*[x×]\s*\d+/.test(x)) ? 'Por repeticiones · 60–90 s de descanso entre series' : '');
+    return { nombre: m[1], meta: formato, ej };
   }).filter(s => !/pausa/i.test(s.nombre));
   abrirCapa(ev, 'im-fz', `
     <button class="im-close" id="im-close" aria-label="Cerrar">${ICON_X}</button>

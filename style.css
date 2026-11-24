@@ -788,3 +788,14 @@ body[data-sec="ajustes"] #btn-ajustes { background: rgba(255,255,255,.4); }
 #inmersion.im-fz { --im: #8b6fd1; }
 #inmersion.im-fz .im-hero .sym { color: #b9a6e0; background: rgba(91,33,182,.25); }
 .im-sec.rut h4 { color: #b9a6e0; font-size: 15px; letter-spacing: .06em; }
+
+/* ===== v2.3.1: cifras especiales sin "subrayado" (fondo de degradado heredado) ===== */
+.ficha b, .ficha.cal b, .ficha.enf b, .ficha.fc b, .ficha.fin b, .ficha.desc b {
+  background: none !important; -webkit-background-clip: border-box; background-clip: border-box; -webkit-text-fill-color: currentColor; text-decoration: none; }
+.ficha.cal b { color: #ffb43a; }   /* calentamiento: ámbar */
+.ficha.enf b { color: #4fc3ff; }   /* enfriamiento: celeste */
+.ficha.fc b  { color: #ff5c7a; }   /* alerta FC: rosa-rojo */
+.ficha.cal, .ficha.enf, .ficha.fc { border-style: solid; }
+.ficha.cal { border-color: rgba(255,180,58,.35); }
+.ficha.enf { border-color: rgba(79,195,255,.35); }
+.ficha.fc  { border-color: rgba(255,92,122,.35); }
