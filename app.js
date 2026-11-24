@@ -6,16 +6,16 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.7.1';
+const VERSION = '2.8.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
   comidas: 'nutricion/comidas.csv', alimentos: 'nutricion/alimentos.csv', actividad: 'nutricion/actividad.csv',
   entrenos: 'running/entrenos.csv', peso: 'peso.csv', analisis: 'running/analisis.md',
   stravaEstado: 'running/strava-estado.json', stravaReg: 'running/strava.csv',
-  fuerza: 'fuerza/sesiones.csv', rutinas: 'fuerza/rutinas.md',
+  fuerza: 'fuerza/sesiones.csv', rutinas: 'fuerza/rutinas.md', valoraciones: 'nutricion/valoraciones.csv',
 };
-const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg', 'fuerza', 'rutinas']);   // pueden no existir todavía
+const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg', 'fuerza', 'rutinas', 'valoraciones']);   // pueden no existir todavía
 const CLAUDE_URL = 'https://claude.ai/code';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const COMIDAS = ['desayuno', 'almuerzo', 'comida', 'merienda', 'cena', 'snack'];
@@ -30,6 +30,7 @@ const EMOJI = {
   snack: L('<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M5 9.5h14M5 14.5h14M12 4v16"/>'),
 };
 const ICO = {
+  apex: L('<path d="M4.5 19.5 12 5l7.5 14.5"/>'),
   medalla: L('<circle cx="12" cy="15" r="5"/><path d="M8.5 3.5 11 10M15.5 3.5 13 10M7 3.5h3.5M13.5 3.5H17"/>'),
   pesa: L('<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>'),
   meta: L('<path d="M5 21V4M5 4h11l-2 3.5L16 11H5"/>'),
@@ -241,6 +242,7 @@ function renderNutri(hoy) {
   const bal = n.gasto != null ? Math.round(n.t.kcal - n.gasto) : null;
   const restante = Math.round(ref - n.t.kcal);
   const porComida = COMIDAS.map(c => ({ c, rs: n.rows.filter(r => r.comida === c) })).filter(x => x.rs.length);
+  const vals = Object.fromEntries(csv('valoraciones').rows.filter(v => v.fecha === hoy && v.texto).map(v => [v.comida, v]));
 
   // Día cerrado → el balance es lo principal de la pantalla.
   const def = bal != null && bal < 0;
@@ -307,16 +309,23 @@ function renderNutri(hoy) {
         <div class="fc-face fc-front">${balanceHero}</div>${ringCard}
       </div></div>`
     : ringCard}
+    <div id="pend-fotos"></div>
     ${porComida.length ? porComida.map(({ c, rs }) => {
-      const sub = rs.reduce((s, r) => s + num(r.kcal), 0), open = abiertas.has(c);
+      const sub = rs.reduce((s, r) => s + num(r.kcal), 0), open = abiertas.has(c), v = vals[c];
+      const m = rs.reduce((s, r) => ({ P: s.P + num(r.prot_g), HC: s.HC + num(r.hc_g), G: s.G + num(r.grasa_g) }), { P: 0, HC: 0, G: 0 });
       return `<div class="meal-card ${open ? 'open' : ''}">
-        <button class="meal-top" data-meal="${c}">
+        <button class="meal-top" data-meal="${c}" aria-expanded="${open}">
           <span class="meal-ico">${EMOJI[c] || EMOJI.comida}</span>
           <span class="grow"><b>${c}</b><small>${rs.length} ${rs.length === 1 ? 'alimento' : 'alimentos'}</small></span>
           <span class="meal-kcal">${fmt(sub)}<small>kcal</small></span>
+          <span class="meal-chev">${ICON_DOWN}</span>
         </button>
-        <div class="meal-items">${rs.map(r => `<div class="item"><span class="grow name">${esc(r.alimento)}${r.fuente === 'estimado' ? ' <span class="tag">est.</span>' : ''}<small class="muted"> · ${esc(r.cantidad_g)} g</small></span>
-          <b>${esc(r.kcal)}</b><button class="del" data-del="${encodeURIComponent(r._raw)}" aria-label="Borrar">${ICON_X}</button></div>`).join('')}</div>
+        ${v ? `<p class="meal-val t-${esc(v.tono)}" data-k="${esc(`${hoy}|${c}|${v.texto.length}|${v.texto.slice(0, 12)}`)}"><span class="mv-ico">${ICO.apex}</span><span class="mv-txt">${esc(v.texto)}</span></p>` : ''}
+        <div class="meal-items"><div class="mi-in">
+          <div class="meal-macros"><span><i class="dot p"></i>Prot. <b>${Math.round(m.P)} g</b></span><span><i class="dot h"></i>Hidr. <b>${Math.round(m.HC)} g</b></span><span><i class="dot g"></i>Grasa <b>${Math.round(m.G)} g</b></span></div>
+          ${rs.map(r => `<div class="item"><span class="grow name">${esc(r.alimento)}${r.fuente === 'estimado' ? ' <span class="tag">est.</span>' : ''}<small class="muted"> · ${esc(r.cantidad_g)} g</small></span>
+          <b>${esc(r.kcal)}</b><button class="del" data-del="${encodeURIComponent(r._raw)}" aria-label="Borrar">${ICON_X}</button></div>`).join('')}
+        </div></div>
       </div>`;
     }).join('') : `<button class="empty-cta" id="empty-add"><span><svg viewBox="0 0 24 24" class="ti-svg"><path d="M3.5 8.5h3.2l1.8-2.5h7l1.8 2.5h3.2v10.5h-17z"/><circle cx="12" cy="13.5" r="3.6"/></svg></span><b>Registra tu primera comida</b><small>Haz una foto del plato</small></button>`}`;
 
@@ -338,9 +347,71 @@ function renderNutri(hoy) {
   $('#empty-add')?.addEventListener('click', () => abrirSheet());
   $$('[data-meal]').forEach(b => b.addEventListener('click', () => {
     const c = b.dataset.meal; abiertas.has(c) ? abiertas.delete(c) : abiertas.add(c);
-    b.parentElement.classList.toggle('open');
+    b.setAttribute('aria-expanded', b.parentElement.classList.toggle('open'));
   }));
   $$('[data-del]').forEach(b => b.addEventListener('click', () => borrarComida(decodeURIComponent(b.dataset.del))));
+  pintarPendientes();
+  escribirValoraciones();
+}
+
+// Valoración de APEX: la primera vez que aparece, "APEX está escribiendo…" y se teclea; después, fija.
+function escribirValoraciones() {
+  if ($('#splash:not(.fuera)') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  let vistas; try { vistas = JSON.parse(localStorage.getItem('valVistas') || '[]'); } catch { vistas = []; }
+  $$('.meal-val[data-k]').filter(el => !vistas.includes(el.dataset.k)).forEach((el, i) => {
+    const span = $('.mv-txt', el), txt = span.textContent, k = el.dataset.k;
+    span.textContent = ''; el.classList.add('pensando');
+    setTimeout(() => {
+      if (!el.isConnected) return;
+      el.classList.replace('pensando', 'typing');
+      let j = 0;
+      const paso = () => {
+        if (!el.isConnected) return;
+        j = Math.min(txt.length, j + 2); span.textContent = txt.slice(0, j);
+        if (j < txt.length) return setTimeout(paso, 24);
+        el.classList.remove('typing');
+        vistas = [...vistas.filter(x => x !== k), k].slice(-80);
+        try { localStorage.setItem('valVistas', JSON.stringify(vistas)); } catch { /* sin almacenamiento */ }
+      };
+      paso();
+    }, 900 + i * 500);
+  });
+}
+
+// ---------- Fotos pendientes (IndexedDB, solo en este dispositivo) ----------
+// La foto se guarda antes de analizarla y se borra al terminar bien: si Gemini falla o se cierra la app, sigue aquí.
+function fotosDB(modo, fn) {
+  return new Promise((ok, ko) => {
+    const rq = indexedDB.open('apex', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('fotos', { keyPath: 'id' });
+    rq.onerror = () => ko(rq.error);
+    rq.onsuccess = () => {
+      const tx = rq.result.transaction('fotos', modo), q = fn(tx.objectStore('fotos'));
+      tx.oncomplete = () => ok(q.result); tx.onerror = () => ko(tx.error);
+    };
+  });
+}
+const fotosPend = () => fotosDB('readonly', s => s.getAll()).catch(() => []);
+const guardarFoto = f => fotosDB('readwrite', s => s.put(f)).catch(() => toast('No he podido guardar la foto en el móvil'));
+const borrarFoto = id => fotosDB('readwrite', s => s.delete(id)).catch(() => {});
+
+async function pintarPendientes() {
+  const box = $('#pend-fotos'); if (!box) return;
+  const fs = (await fotosPend()).sort((a, b) => a.id - b.id), hoy = ahora().fecha;
+  box.innerHTML = fs.length ? `<div class="card pend"><h3>Fotos sin analizar<span class="tag">${fs.length}</span></h3>
+    ${fs.map(f => `<div class="pend-row"><img src="${f.dataUrl}" alt="">
+      <span class="grow"><b>${esc(f.comida)}</b><small>${f.fecha === hoy ? 'hoy' : f.fecha === addDays(hoy, -1) ? 'ayer' : esc(f.fecha)} · ${esc(f.hora)}${f.nota ? ` · “${esc(f.nota)}”` : ''}</small></span>
+      <button class="pill action" data-pf="${f.id}">Analizar</button>
+      <button class="del" data-pfx="${f.id}" aria-label="Descartar">${ICON_X}</button></div>`).join('')}
+    <p class="muted">Se guardan en este dispositivo hasta que se analizan.</p></div>` : '';
+  $$('[data-pf]', box).forEach(b => b.addEventListener('click', () => {
+    const f = fs.find(x => String(x.id) === b.dataset.pf); if (!f) return;
+    $('#sheet').hidden = false; analizarFoto(f);
+  }));
+  $$('[data-pfx]', box).forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('¿Descartar esta foto?')) return;
+    await borrarFoto(+b.dataset.pfx); pintarPendientes();
+  }));
 }
 
 function miniRing(nombre, v, ref, color) {
@@ -1288,6 +1359,11 @@ async function borrarComida(raw) {
 // ---------- hoja "Añadir" ----------
 let plato = [];            // alimentos pendientes de guardar
 let comidaSel = null;
+let valPend = null;        // valoración de APEX del plato pendiente { tono, texto }
+let notaFoto = '';         // comentario de contexto para la próxima foto
+// El plato sin guardar sobrevive a cerrar la app (la foto ya se ha borrado al analizarla).
+try { const g = JSON.parse(localStorage.getItem('plato') || 'null'); if (g?.plato?.length) ({ plato, valPend, comidaSel } = g); } catch { /* nada guardado */ }
+const recordarPlato = () => { try { localStorage.setItem('plato', JSON.stringify({ plato, valPend, comidaSel })); } catch { /* sin almacenamiento */ } };
 let stream = null;
 
 function abrirSheet(vista) {
@@ -1313,6 +1389,8 @@ function vistaInicio() {
   $('#sheet-body').innerHTML = `
     ${cabeceraComida()}
     <p class="photo-title">Foto del plato · la IA detecta alimentos y kcal</p>
+    <input id="foto-ctx" class="foto-ctx" maxlength="160" value="${esc(notaFoto)}" autocomplete="off"
+      placeholder="Contexto opcional · p. ej. cena con amigos, compartido entre 3, frito en aceite">
     <div class="photo-pick">
       <label class="tile hero-tile" for="foto-in"><span class="tile-ico"><svg viewBox="0 0 24 24" class="ti-svg"><path d="M3.5 8.5h3.2l1.8-2.5h7l1.8 2.5h3.2v10.5h-17z"/><circle cx="12" cy="13.5" r="3.6"/></svg></span><b>Hacer foto</b>
         <input type="file" id="foto-in" accept="image/*" capture="environment" hidden></label>
@@ -1329,6 +1407,7 @@ function vistaInicio() {
     ${platoHTML()}`;
   bindCabecera(vistaInicio);
   bindPlato(vistaInicio);
+  $('#foto-ctx').addEventListener('input', e => (notaFoto = e.target.value));
   $('#foto-in').addEventListener('change', e => e.target.files[0] && analizarFoto(e.target.files[0]));
   $('#gal-in').addEventListener('change', e => e.target.files[0] && analizarFoto(e.target.files[0]));
   $$('[data-v]').forEach(b => b.addEventListener('click', () => ({
@@ -1341,10 +1420,13 @@ function bindVolver() { $('#back')?.addEventListener('click', () => { pararCamar
 
 // Plato (carrito) compartido por todas las vías.
 function platoHTML() {
+  if (!plato.length) valPend = null;
+  recordarPlato();
   if (!plato.length) return '';
   const tot = plato.reduce((s, x) => s + x.kcal, 0);
   return `<div class="plato">
     <div class="plato-head"><b>${EMOJI[comidaSel]}Tu ${comidaSel}</b><span>${fmt(tot)} kcal</span></div>
+    ${valPend ? `<p class="meal-val t-${esc(valPend.tono)}"><span class="mv-ico">${ICO.apex}</span><span class="mv-txt">${esc(valPend.texto)}</span></p>` : ''}
     ${plato.map((x, i) => `<div class="item"><span class="grow name">${esc(x.alimento)}${x.fuente === 'estimado' ? ' <span class="tag">est.</span>' : ''}</span>
       <input class="g-in" type="number" inputmode="decimal" value="${x.cantidad_g}" data-gi="${i}" aria-label="gramos"><small class="muted">g</small>
       <b class="kc">${x.kcal}</b><button class="del" data-pi="${i}">${ICON_X}</button></div>`).join('')}
@@ -1367,9 +1449,16 @@ async function guardarPlato() {
   try {
     await appendLines('comidas', plato.map(x => toLine(header, { fecha, hora, comida: comidaSel, ...x, alimento: limpio(x.alimento) })),
       `${comidaSel} (${plato.length} alimentos)`);
-    plato = []; abiertas.add(comidaSel); cerrarSheet(); toast('Comida guardada ✓'); render();
+    if (valPend) await guardarValoracion(plato[0].fecha || fecha, comidaSel, valPend).catch(() => {});   // no bloquea la comida
+    plato = []; valPend = null; recordarPlato(); abiertas.add(comidaSel); cerrarSheet(); toast('Comida guardada ✓'); render();
   } catch (e) { toast(e.message); btn.disabled = false; }
 }
+// Una valoración por comida y día (la última sustituye a la anterior).
+const VAL_COLS = ['fecha', 'comida', 'tono', 'texto'];
+const guardarValoracion = (f, c, v) => modify('valoraciones', t => {
+  const ls = (t.trim() ? t : VAL_COLS.join(',')).split('\n').filter(l => l.trim() && !l.startsWith(`${f},${c},`));
+  return [...ls, toLine(VAL_COLS, { fecha: f, comida: c, ...v })].join('\n');
+}, `valoración ${c}`);
 // Si el alimento está en la base, se usan sus valores (fuente=base).
 function desdeBase(nombre, g) {
   const a = csv('alimentos').rows.find(x => norm(x.alimento) === norm(nombre) || x.alias.split('|').some(al => al && norm(al) === norm(nombre)));
@@ -1407,7 +1496,25 @@ async function modelosGemini() {
   return cfg.gOk && lista.includes(cfg.gOk) ? [cfg.gOk, ...lista.filter(m => m !== cfg.gOk)] : lista;
 }
 const dormir = ms => new Promise(r => setTimeout(r, ms));
-function promptNutri(texto) {
+// Contexto del día para que la valoración sepa cómo encaja la comida (déficit, entreno…).
+function contextoDia(f) {
+  const n = nutriDia(f), p = perfil();
+  const ya = COMIDAS.map(c => [c, n.rows.filter(r => r.comida === c).reduce((s, r) => s + num(r.kcal), 0)])
+    .filter(x => x[1]).map(([c, k]) => `${c} ${Math.round(k)} kcal`).join('; ');
+  const act = csv('actividad').rows.slice(-14).map(r => num(r.kcal_activas)).filter(Boolean);
+  const media = act.length ? Math.round(act.reduce((a, b) => a + b, 0) / act.length) : 0;
+  const run = csv('entrenos').rows.filter(e => e.fecha === f).map(e => `${e.distancia_km} km`).join(' + ');
+  const fz = csv('fuerza').rows.some(e => e.fecha === f);
+  return `Contexto de mi día (${fechaLarga(f)}): antes de esta comida llevo ${ya ? `${ya} (total ${Math.round(n.t.kcal)} kcal)` : '0 kcal'}.
+Gasto: TMB ${n.tmb} kcal + kcal activas del reloj ${n.act ? `= ${Math.round(n.gasto)} kcal hoy` : `(aún sin cerrar el día; mi media es ${media || '≈600'} kcal activas)`}.
+${run ? `Hoy he corrido ${run}.` : 'Hoy no he corrido.'}${fz ? ' Hoy he hecho fuerza.' : ''} Objetivo: ${p.objetivo || 'perder grasa'}${n.protRef ? `; proteína de referencia ${n.protRef} g/día` : ''}.`;
+}
+const TONOS = ['ligero', 'equilibrado', 'copioso'];
+function valoracionDe(out) {
+  const texto = String(out.valoracion || '').replace(/\s*,\s*/g, ' – ').replace(/["\n\r]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220);
+  return texto ? { tono: TONOS.includes(out.tono) ? out.tono : 'equilibrado', texto } : null;
+}
+function promptNutri(texto, fecha = ahora().fecha, nota = '') {
   const base = csv('alimentos').rows.map(a => a.alimento).join(', ');
   return `Eres APEX, mi nutricionista deportivo. Analiza ${texto ? 'la descripción' : 'la foto'} de una comida y desglosa cada ingrediente.
 Reglas:
@@ -1417,10 +1524,17 @@ Reglas:
 - Si un ingrediente coincide con uno de esta base, usa exactamente ese nombre: ${base}.
 - Nombres cortos en español, sin comas.
 ${texto ? `Descripción del usuario: "${texto}"` : ''}
-Responde SOLO con JSON: {"plato":"nombre corto","items":[{"alimento":"","cantidad_g":0,"kcal":0,"prot_g":0,"hc_g":0,"grasa_g":0}],"nota":"una frase breve, p. ej. si hay mucho sodio"}`;
+${nota ? `Comentario del usuario sobre la foto (úsalo para raciones, ingredientes ocultos, cocinado y para la valoración): "${nota}"` : ''}
+Además escribe "valoracion" como un nutricionista amable y cercano (tú eres APEX y me hablas de tú):
+- 1 o 2 frases cortas (máx. 150 caracteres) sin comas y sin sermones ni consejos médicos.
+- Di qué tipo de comida es (p. ej. "Desayuno ligero y alto en proteína") y cómo encaja en mi día según el contexto.
+- Si es copiosa o parece social (con amigos o celebración) quita la culpa: celebra que la he disfrutado y si cabe en el gasto del día dilo ("Has disfrutado de un día libre sin salirte del déficit"); si no cabe propón compensar con suavidad.
+- "tono": "ligero", "equilibrado" o "copioso".
+${contextoDia(fecha)}
+Responde SOLO con JSON: {"plato":"nombre corto","items":[{"alimento":"","cantidad_g":0,"kcal":0,"prot_g":0,"hc_g":0,"grasa_g":0}],"valoracion":"","tono":"equilibrado"}`;
 }
-async function preguntarGemini(texto, dataUrl, onIntento) {
-  const out = await geminiJSON(promptNutri(texto), dataUrl, onIntento);
+async function preguntarGemini(texto, dataUrl, onIntento, fecha, nota) {
+  const out = await geminiJSON(promptNutri(texto, fecha, nota), dataUrl, onIntento);
   if (!Array.isArray(out.items) || !out.items.length) throw new Error('No he reconocido alimentos; prueba con otra foto o descríbelo');
   return out;
 }
@@ -1466,40 +1580,63 @@ async function geminiJSON(prompt, dataUrl, onIntento) {
   throw new Error(soloCupo ? 'Has agotado el cupo gratuito de Gemini por ahora; vuelve a intentarlo más tarde'
     : `Gemini no responde ahora (${fallos.join(' · ')})`);
 }
-function añadirResultado(out) {
+// foto (opcional): una foto pendiente de otro momento conserva su fecha y hora.
+function añadirResultado(out, foto) {
+  const cuando = foto ? { fecha: foto.fecha, hora: foto.hora } : {};
   for (const it of out.items) {
     const g = num(it.cantidad_g);
-    plato.push(desdeBase(it.alimento, g) || {
+    plato.push({ ...(desdeBase(it.alimento, g) || {
       alimento: limpio(it.alimento), cantidad_g: Math.round(g), kcal: Math.round(num(it.kcal)), prot_g: r1(num(it.prot_g)),
       hc_g: r1(num(it.hc_g)), grasa_g: r1(num(it.grasa_g)), fuente: 'estimado',
-    });
+    }), ...cuando });
   }
+  valPend = valoracionDe(out) || valPend;
 }
-async function analizarFoto(file) {
-  const dataUrl = await fotoBase64(file);
+// src: un File recién hecho o una foto pendiente { id, dataUrl, fecha, hora, comida, nota }.
+async function analizarFoto(src) {
+  let foto = src;
+  if (src instanceof Blob) {
+    let dataUrl;
+    try { dataUrl = await fotoBase64(src); } catch { toast('No puedo leer esta imagen; prueba con otra'); return; }
+    const { fecha, hora } = ahora();
+    foto = { id: Date.now(), dataUrl, fecha, hora, comida: comidaSel, nota: limpio(notaFoto) };
+    await guardarFoto(foto);   // a salvo hasta que el análisis termine bien
+  }
+  comidaSel = foto.comida || comidaSel;
   $('#sheet-title').textContent = 'Analizando…';
-  $('#sheet-body').innerHTML = `<div class="scan"><img src="${dataUrl}" alt=""><i class="scan-line"></i></div>
+  $('#sheet-body').innerHTML = `<div class="scan"><img src="${foto.dataUrl}" alt=""><i class="scan-line"></i></div>
+    ${foto.nota ? `<p class="center foto-nota">“${esc(foto.nota)}”</p>` : ''}
     <p class="muted center" id="an-estado">Detectando alimentos y raciones…</p>`;
   try {
-    const out = await preguntarGemini('', dataUrl, (n, t) => {
+    const out = await preguntarGemini('', foto.dataUrl, (n, t) => {
       if (n > 1 && $('#an-estado')) $('#an-estado').textContent = `El modelo anterior está saturado · probando otro (${n}/${t})…`;
-    });
-    añadirResultado(out);
+    }, foto.fecha, foto.nota);
+    añadirResultado(out, foto);
+    await borrarFoto(foto.id);
+    notaFoto = '';
+    pintarPendientes();
     vistaInicio();
-    toast(`${out.plato || 'Plato'} · ${out.items.length} alimentos${out.nota ? ' · ' + out.nota : ''}`);
+    toast(`${out.plato || 'Plato'} · ${out.items.length} alimentos`);
   } catch (e) {
-    // Si falla, no se pierde la foto: se puede reintentar o describir con texto.
+    pintarPendientes();
     $('#sheet-title').textContent = 'No se pudo analizar';
-    $('#sheet-body').innerHTML = `<div class="scan"><img src="${dataUrl}" alt=""></div>
+    $('#sheet-body').innerHTML = `<div class="scan"><img src="${foto.dataUrl}" alt=""></div>
       <p class="aviso">${ICO.aviso}<span>${esc(e.message)}</span></p>
+      <p class="muted center" style="margin-top:10px">La foto queda guardada en Nutrición › Fotos sin analizar: podrás reintentarlo sin repetirla.</p>
+      <input id="an-nota" class="foto-ctx" maxlength="160" value="${esc(foto.nota || '')}" autocomplete="off" placeholder="Contexto opcional para el análisis">
       <div class="stack" style="margin-top:12px">
-        <button class="btn primary" id="an-retry">Reintentar con esta foto</button>
+        <button class="btn primary" id="an-retry">Reintentar ahora</button>
+        <button class="btn ghost" id="an-luego">Reintentar más tarde</button>
         <button class="btn ghost" id="an-texto">Describirlo con texto</button>
-        <button class="btn ghost" id="an-volver">Volver</button>
       </div>`;
-    $('#an-retry').addEventListener('click', () => analizarFoto(file));
+    const notaNueva = async () => {
+      const n = limpio($('#an-nota').value);
+      if (n !== (foto.nota || '')) { foto.nota = n; await guardarFoto(foto); }
+    };
+    $('#an-retry').addEventListener('click', async () => { await notaNueva(); analizarFoto(foto); });
+    $('#an-nota').addEventListener('change', notaNueva);
+    $('#an-luego').addEventListener('click', () => { cerrarSheet(); render(); });
     $('#an-texto').addEventListener('click', vistaTexto);
-    $('#an-volver').addEventListener('click', vistaInicio);
   }
 }
 function vistaTexto() {

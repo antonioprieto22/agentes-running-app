@@ -301,8 +301,47 @@ body[data-sec="ajustes"] .fab { display: none; }
 .meal-top small { color: var(--muted); font-size: 12px; }
 .meal-kcal { font-size: 20px; font-weight: 800; color: var(--acc); text-align: right; line-height: 1; }
 .meal-kcal small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
-.meal-items { display: none; padding: 0 16px 8px; }
-.meal-card.open .meal-items { display: block; }
+/* Flechita + desglose desplegable (animado) */
+.meal-chev { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--soft); color: var(--ink); flex: none; transition: transform .3s cubic-bezier(.2,.9,.3,1.2); }
+.meal-chev svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.meal-card.open .meal-chev { transform: rotate(180deg); }
+.meal-items { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .32s ease; }
+.meal-card.open .meal-items { grid-template-rows: 1fr; }
+.mi-in { min-height: 0; overflow: hidden; padding: 0 16px; }
+.mi-in::after { content: ''; display: block; height: 8px; }
+.meal-macros { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); padding: 2px 0 10px; }
+.meal-macros b { color: var(--text); font-weight: 600; }
+.meal-macros .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+.dot.p { background: #22c55e; } .dot.h { background: #3b82f6; } .dot.g { background: #eab308; }
+
+/* Valoración de APEX: burbuja con acento según el tono; la 1.ª vez "escribiendo…" y se teclea */
+.meal-val { --tono: var(--acc); display: flex; gap: 9px; align-items: flex-start; margin: -4px 16px 14px; padding: 10px 12px;
+  border-radius: var(--r-md); background: color-mix(in srgb, var(--tono) 9%, var(--card)); border-left: 3px solid var(--tono);
+  font-size: 13.5px; line-height: 1.4; color: var(--text); min-height: 40px; }
+.meal-val.t-ligero { --tono: var(--good); }
+.meal-val.t-copioso { --tono: #eab308; }
+.plato .meal-val { margin: 2px 0 6px; }
+.mv-ico { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; background: var(--tono); color: #fff; margin-top: 1px; }
+.mv-ico .li { width: 13px; height: 13px; stroke-width: 2.6; }
+.meal-val.pensando .mv-txt::before { content: ''; display: inline-block; width: 30px; height: 8px; vertical-align: middle;
+  background: radial-gradient(circle, var(--tono) 60%, transparent 62%) 0 50% / 10px 8px repeat-x; animation: dots 1s steps(3) infinite; }
+.meal-val.typing .mv-txt::after { content: ''; display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -2px; background: var(--tono); animation: caret .6s steps(2) infinite; }
+@keyframes dots { from { width: 10px; } to { width: 40px; } }
+@keyframes caret { 50% { opacity: 0; } }
+
+/* Fotos pendientes y contexto de la foto */
+.pend h3 .tag { font-size: 11px; }
+.pend-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.pend-row img { width: 48px; height: 48px; border-radius: var(--r-sm); object-fit: cover; flex: none; }
+.pend-row b { display: block; text-transform: capitalize; font-size: 14px; }
+.pend-row small { color: var(--muted); font-size: 12px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
+.pend-row .grow { min-width: 0; }
+.pend-row .del { color: var(--muted); padding: 4px; }
+.pend-row .del svg { width: 18px; height: 18px; }
+.pend .muted { margin-top: 6px; font-size: 12px; }
+.foto-ctx { margin: 0 0 12px; font-size: 14px; }
+#an-nota { margin: 12px 0 0; }
+.foto-nota { font-size: 13px; font-style: italic; color: var(--muted); margin: -4px 0 6px; }
 .empty-cta { display: grid; justify-items: center; gap: 4px; padding: 28px; border: 2px dashed var(--line); border-radius: var(--r-lg); color: var(--muted); }
 .empty-cta .ti-svg { width: 40px; height: 40px; stroke-width: 1.5; }
 .empty-cta b { color: var(--text); }
