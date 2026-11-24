@@ -2,7 +2,7 @@
 // Agente Running — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.3.2';
+const VERSION = '2.3.3';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -114,6 +114,7 @@ const upsert = (key, fecha, linea, msg) =>
 // ---------- estado ----------
 let D = {};
 let seccion = 'nutri';
+let ultimaCarga = 0;   // marca de la última carga completa de datos
 let abiertas = new Set();      // comidas desplegadas
 let macrosAbiertos = false;
 let balDia = null;
@@ -126,6 +127,7 @@ async function cargar() {
     const pares = await Promise.all(Object.entries(FILES).map(async ([k, p]) =>
       [k, OPCIONALES.has(k) ? await getFile(p).catch(() => ({ text: '', sha: undefined })) : await getFile(p)]));
     D = Object.fromEntries(pares);
+    ultimaCarga = Date.now();
     render();
   } catch (e) { toast(e.message); if (!Object.keys(D).length) irA('ajustes'); }
   finally { b.classList.remove('spin'); }
@@ -1032,6 +1034,12 @@ Responde SOLO JSON:
 "ajuste":{"necesario":false,"motivo":"una frase","sesiones":[{"fecha":"AAAA-MM-DD","dia":"mar","sesion":"rodaje Z2","detalle":"..."}]}}`;
 }
 async function analizarSesion(e) {
+  // Otro dispositivo (móvil/iPad) puede haberla analizado ya: se comprueba antes de gastar una llamada a Gemini.
+  try {
+    const fresco = await getFile(FILES.analisis);
+    D.analisis = fresco;
+    if (fresco.text.includes(`<!-- ref:${refDe(e)} -->`)) return analisisDe(e);
+  } catch { /* si falla la comprobación, se analiza igualmente */ }
   const out = await geminiJSON(promptCoach(e));
   const v = ['bien', 'regular', 'mejorable'].includes(out.valoracion) ? out.valoracion : 'regular';
   const { fecha } = ahora();
@@ -1405,9 +1413,11 @@ async function geminiJSON(prompt, dataUrl) {
   const parts = [{ text: prompt }];
   if (dataUrl) parts.push({ inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } });
   const body = JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } });
-  let ultimo = 0;
+  let ultimo = 0, llamadas = 0;
+  const MAX_LLAMADAS = 3;   // tope de intentos en total (entre todos los modelos) para no malgastar el cupo gratuito
   for (const model of await modelosGemini()) {
-    for (let intento = 0; intento < 2; intento++) {
+    for (let intento = 0; intento < 2 && llamadas < MAX_LLAMADAS; intento++) {
+      llamadas++;
       let r;
       try { r = await fetch(`${GEMINI}/${model}:generateContent?key=${encodeURIComponent(cfg.gemini)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }); }
       catch { throw new Error('Sin conexión con Gemini'); }
@@ -1419,9 +1429,10 @@ async function geminiJSON(prompt, dataUrl) {
       ultimo = r.status;
       if (r.status === 400 || r.status === 403) throw new Error('Clave de Gemini no válida (Ajustes)');
       if (r.status === 404) { cfg.gModels = []; saveCfg(); break; }           // modelo retirado → siguiente
-      if ([429, 500, 503].includes(r.status)) { await dormir(1500 * (intento + 1)); continue; } // saturado → reintenta
+      if ([429, 500, 503].includes(r.status)) { if (llamadas < MAX_LLAMADAS) await dormir(1500 * (intento + 1)); continue; } // saturado → reintenta
       break;
     }
+    if (llamadas >= MAX_LLAMADAS) break;
   }
   throw new Error(ultimo === 429 ? 'Límite gratuito de Gemini alcanzado por hoy o por minuto; prueba en un rato'
     : ultimo === 503 || ultimo === 500 ? 'Gemini está saturado ahora mismo; inténtalo en unos minutos'
@@ -1686,7 +1697,10 @@ $('#sheet-close').addEventListener('click', cerrarSheet);
 $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') cerrarSheet(); });
 $('#btn-sync').addEventListener('click', cargar);
 $('#btn-ajustes').addEventListener('click', () => irA(seccion === 'ajustes' ? 'nutri' : 'ajustes'));
-document.addEventListener('visibilitychange', () => { if (!document.hidden && cfg.token && $('#sheet').hidden) cargar(); });
+// Al volver a la app solo se recarga si los datos tienen más de 2 minutos (el botón ⟳ siempre fuerza la recarga).
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && cfg.token && $('#sheet').hidden && Date.now() - ultimaCarga > 120000) cargar();
+});
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
 gestos();
