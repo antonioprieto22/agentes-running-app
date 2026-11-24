@@ -401,7 +401,9 @@ body[data-sec="ajustes"] .fab { display: none; }
 .col2 em { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--acc); }
 
 /* Noria de sesiones */
-.rueda { position: relative; height: 290px; perspective: 1200px; touch-action: pan-x; user-select: none; }
+/* La noria gira en vertical con JS (none); la tarjeta única de Fuerza no gira: deja hacer scroll vertical (pan-y) */
+.rueda { position: relative; height: 290px; perspective: 1200px; touch-action: none; user-select: none; }
+.rueda.fz-una { touch-action: pan-y; }
 .rueda.aparece { animation: ruedaIn .5s cubic-bezier(.22,1,.36,1); }
 @keyframes ruedaIn { from { opacity: 0; transform: translateY(-16px) scale(.96); } }
 .rueda .next {
@@ -777,9 +779,11 @@ body.hist-on { overflow: hidden; }
 .rc-ic svg { width: 22px; height: 22px; stroke-width: 2; animation: reloj 2.4s ease-in-out infinite; }
 @keyframes reloj { 0%, 70% { transform: rotate(0); } 85%, 100% { transform: rotate(180deg); } }
 .recup small { display: block; font-size: 12px; font-weight: 600; opacity: .7; }
-.rc-t { display: block; font-size: 24px; font-weight: 900; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.rc-sub { display: block; font-size: 12.5px; font-weight: 500; opacity: .8; }
-.rc-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(31, 22, 0, .12); }
-.rc-bar em { display: block; height: 100%; width: 0; background: #1f1600; opacity: .55; transition: width 1s linear; }
+.rc-t { display: block; font-size: 28px; font-weight: 900; letter-spacing: .01em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+/* Barra: naranja de Running sobre pista blanca, bien visible sobre el amarillo */
+.rc-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; background: rgba(255, 255, 255, .55); }
+.rc-bar em { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ff8a3d, #fc4c02); border-radius: 0 4px 4px 0;
+  box-shadow: 0 0 8px rgba(252, 76, 2, .6); transition: width 1s linear; }
+.recup.listo .rc-bar em { background: #fff; box-shadow: none; }
 .recup.listo { background: linear-gradient(135deg, #5ee07f, #34c759); color: #04210d; box-shadow: 0 6px 18px rgba(52, 199, 89, .28); }
 .recup.listo .rc-ic svg { animation: none; }

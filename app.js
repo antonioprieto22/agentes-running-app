@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.11.0';
+const VERSION = '2.11.1';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -797,13 +797,10 @@ function recuperacionHTML() {
   if (!r) return '';
   const fin = tsMadrid(r.hasta), ini = fin - (num(r.horas) || 24) * 36e5;
   if (ahoraTs() > fin + 6 * 36e5) return '';                 // tras recuperarse, el aviso se queda 6 h
-  const dia = r.hasta.slice(0, 10), hoy = ahora().fecha;
-  const cuando = dia === hoy ? 'hoy' : dia === addDays(hoy, 1) ? 'mañana' : DIAS_LARGOS[dow(dia)];
   return `<div class="recup" id="recup" data-ini="${ini}" data-fin="${fin}">
     <span class="rc-ic"><svg viewBox="0 0 24 24"><path d="M7 3.5h10M7 20.5h10M8 3.5c0 4.5 8 4.5 8 8.5s-8 4-8 8.5M16 3.5c0 4.5-8 4.5-8 8.5s8 4 8 8.5"/></svg></span>
     <span class="grow"><small>Recuperación · ${norm(r.fuente).includes('fitness') ? 'Mi Fitness' : 'estimada por APEX'}</small>
-      <b class="rc-t" id="rc-t">—</b>
-      <span class="rc-sub" id="rc-sub">hasta ${cuando} a las ${r.hasta.slice(11)}</span></span>
+      <b class="rc-t" id="rc-t">--:--:--</b></span>
     <i class="rc-bar"><em id="rc-bar"></em></i>
   </div>`;
 }
@@ -811,20 +808,18 @@ let recupTimer = 0;
 function arrancarRecuperacion() {
   clearInterval(recupTimer);
   const el = $('#recup'); if (!el) return;
-  const ini = +el.dataset.ini, fin = +el.dataset.fin, sub = $('#rc-sub').textContent;
+  const ini = +el.dataset.ini, fin = +el.dataset.fin, dos = n => String(n).padStart(2, '0');
   const tic = () => {
     if (!el.isConnected) return clearInterval(recupTimer);
     const ahoraMs = ahoraTs(), falta = fin - ahoraMs;
     if (falta <= 0) {
       el.classList.add('listo');
       $('#rc-t').textContent = 'Recuperado';
-      $('#rc-sub').textContent = 'Listo para volver a entrenar';
       $('#rc-bar').style.width = '100%';
       return clearInterval(recupTimer);
     }
     const s = Math.floor(falta / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sg = s % 60;
-    $('#rc-t').textContent = `${h ? h + ' h ' : ''}${String(m).padStart(h ? 2 : 1, '0')} min ${String(sg).padStart(2, '0')} s`;
-    $('#rc-sub').textContent = sub;
+    $('#rc-t').textContent = `${dos(h)}:${dos(m)}:${dos(sg)}`;
     $('#rc-bar').style.width = `${Math.max(0, Math.min(100, (ahoraMs - ini) / (fin - ini) * 100))}%`;
   };
   tic(); recupTimer = setInterval(tic, 1000);
@@ -1281,7 +1276,8 @@ function moverIndicador(pos, animar = true) {
 }
 function gestos() {
   const main = $('main');
-  const NO = '.meal-chips, .hist-track, #rueda, input, textarea, select, [data-noswipe]';
+  // La noria solo usa el gesto vertical: el horizontal sobre ella también cambia de sección.
+  const NO = '.meal-chips, .hist-track, input, textarea, select, [data-noswipe]';
   let x0 = 0, y0 = 0, t0 = 0, modo = null, destino = null, dir = 0, vista = null, objetivo = null;
   main.addEventListener('touchstart', e => {
     const t = e.touches[0];
