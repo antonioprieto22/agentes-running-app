@@ -841,3 +841,95 @@ button.hb-dia { width: 100%; font: inherit; color: inherit; text-align: left; cu
 .hb-cb.ga::before { background: linear-gradient(90deg, color-mix(in srgb, #fc4c02 70%, transparent), color-mix(in srgb, #ff8a3d 45%, transparent)); }
 .hb-cb > * { position: relative; }
 .hb-cb b { font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* =====================================================================
+   Celebración de logros (tipo videojuego) + tarjeta final
+   ===================================================================== */
+.vic { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; overflow: hidden; color: #fff;
+  background: radial-gradient(120% 90% at 50% 45%, rgba(20,20,22,.94), rgba(0,0,0,.97)); opacity: 0; transition: opacity .3s; }
+.vic.on { opacity: 1; }
+.vic.sale { opacity: 0; }
+.vic::after { content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: 0;
+  box-shadow: inset 0 0 0 3px var(--vc), inset 0 0 90px var(--vc); animation: vicBorde 1.1s ease-in-out infinite alternate; }
+@keyframes vicBorde { from { opacity: .55; } to { opacity: 1; } }
+.vic-def { --vc: rgba(52, 211, 153, .75); --vt: #34d399; }
+.vic-sup { --vc: rgba(255, 77, 109, .85); --vt: #ff4d6d; }
+.vic-run { --vc: rgba(252, 76, 2, .7); --vt: #ff8a3d; }
+.vic-fz  { --vc: rgba(124, 58, 237, .7); --vt: #b9a6e0; }
+.vic-escena { position: absolute; inset: 0; transition: opacity .6s, filter .6s, transform .6s; }
+.vic.fin .vic-escena { opacity: .18; filter: blur(4px); transform: scale(1.05); }
+.vic-centro { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 18px; }
+.vic-grito { font-size: clamp(30px, 10vw, 46px); font-weight: 900; font-style: italic; letter-spacing: .06em; color: var(--vt);
+  text-shadow: 0 0 24px var(--vc); animation: vicGrito .7s cubic-bezier(.2,1.4,.4,1) .25s both; }
+@keyframes vicGrito { from { transform: scale(2.4); opacity: 0; filter: blur(8px); } }
+
+/* Nutrición: flechas que suben (superávit) o caen (déficit) + medidor */
+.vic-fl { position: absolute; left: var(--x); width: calc(56px * var(--s)); height: calc(56px * var(--s)); color: var(--vt); opacity: .9;
+  animation: 1.5s cubic-bezier(.45,.05,.55,.95) var(--d) 2 both; filter: drop-shadow(0 0 8px var(--vc)); }
+.vic-fl svg { width: 100%; height: 100%; stroke-width: 3; }
+.vic-fl.sube { bottom: -15%; animation-name: vicSube; }
+.vic-fl.baja { top: -15%; animation-name: vicBaja; }
+.vic-fl.baja svg { transform: rotate(180deg); }
+@keyframes vicSube { from { transform: translateY(0); opacity: 0; } 15% { opacity: .95; } to { transform: translateY(-130vh); opacity: 0; } }
+@keyframes vicBaja { from { transform: translateY(0); opacity: 0; } 15% { opacity: .95; } to { transform: translateY(130vh); opacity: 0; } }
+.vic-medidor { position: relative; width: 22px; height: 150px; border-radius: 11px; border: 2px solid var(--vt); overflow: hidden; background: rgba(255,255,255,.05); }
+.vic-medidor i { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(0deg, var(--vt), #fff); }
+.vic-medidor.sube i { animation: vicLlena 2s cubic-bezier(.3,.1,.2,1) both; }
+.vic-medidor.baja i { animation: vicVacia 2s cubic-bezier(.3,.1,.2,1) both; }
+@keyframes vicLlena { from { height: 8%; } to { height: 100%; } }
+@keyframes vicVacia { from { height: 100%; } to { height: 8%; } }
+
+/* Running: estelas de velocidad (rápidas en series, moderadas en rodaje) */
+.vic-raya { position: absolute; top: var(--y); left: -50%; width: var(--w); height: 3px; border-radius: 3px;
+  background: linear-gradient(90deg, transparent, var(--vt), #fff); opacity: .85; animation: vicRaya var(--t) linear var(--d) infinite; }
+.vic-rapido { --t: .38s; }
+.vic-medio { --t: .95s; }
+@keyframes vicRaya { to { transform: translateX(200vw); } }
+.vic-sym { width: 112px; height: 112px; border-radius: 34px; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(150deg, #ff8a3d, #fc4c02 55%, #d93a00); box-shadow: 0 0 40px var(--vc); }
+.vic-sym .sym-svg { width: 66px; height: 66px; }
+.vic-rapido .vic-sym { animation: vicTiembla .07s linear infinite; }
+.vic-medio .vic-sym { animation: vicTrote .45s ease-in-out infinite alternate; }
+@keyframes vicTiembla { 25% { transform: translate(2px, -1px); } 50% { transform: translate(-2px, 1px); } 75% { transform: translate(1px, 2px); } }
+@keyframes vicTrote { to { transform: translateY(-8px); } }
+/* Zona 2: corazón con latido lento + línea de pulso */
+.vic-corazon { width: 150px; height: 150px; fill: #ff3d6e; stroke: none; filter: drop-shadow(0 0 26px rgba(255,61,110,.7));
+  animation: vicLatido 1.35s ease-in-out infinite; }
+@keyframes vicLatido { 0%, 100% { transform: scale(1); } 14% { transform: scale(1.16); } 28% { transform: scale(1); } 42% { transform: scale(1.09); } 60% { transform: scale(1); } }
+.vic-ecg { width: min(80vw, 320px); height: 52px; fill: none; stroke: #ff3d6e; stroke-width: 2.5; stroke-dasharray: 420; stroke-dashoffset: 420;
+  animation: vicEcg 2.6s ease-in-out forwards; filter: drop-shadow(0 0 6px rgba(255,61,110,.7)); }
+@keyframes vicEcg { to { stroke-dashoffset: 0; } }
+
+/* Fuerza: levantamiento de pesas (dos repeticiones) */
+.vic-pesa { width: min(78vw, 300px); height: 96px; fill: #b9a6e0; stroke: none; filter: drop-shadow(0 0 18px var(--vc));
+  animation: vicLevanta 2.6s cubic-bezier(.45,0,.3,1) both; }
+.vic-pesa .barra { fill: #e9e3f7; }
+@keyframes vicLevanta {
+  0% { transform: translateY(32vh); }
+  25% { transform: translateY(-6vh); }
+  32%, 38% { transform: translateY(-6vh) rotate(-1.2deg); }
+  35% { transform: translateY(-6vh) rotate(1.2deg); }
+  58% { transform: translateY(22vh); }
+  82% { transform: translateY(-6vh); }
+  86% { transform: translateY(-6vh) rotate(-1deg); }
+  90% { transform: translateY(-6vh) rotate(1deg); }
+  100% { transform: translateY(-6vh); }
+}
+
+/* Tarjeta final: se forma pieza a pieza en el centro */
+.vic-card { position: relative; z-index: 2; width: min(86vw, 380px); padding: 26px 22px 20px; border-radius: 28px; text-align: center;
+  display: grid; justify-items: center; gap: 8px; background: rgba(13,13,15,.92); border: 1px solid var(--vc);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.04), 0 20px 60px rgba(0,0,0,.6), 0 0 50px var(--vc); animation: vicCard .55s cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes vicCard { from { transform: scale(.6); opacity: 0; } }
+.vic-pieza { animation: vicPieza .5s cubic-bezier(.2,.9,.3,1.15) both; animation-delay: calc(.15s + var(--i, 0) * .13s); }
+@keyframes vicPieza { from { opacity: 0; transform: translateY(14px) scale(.9); filter: blur(5px); } }
+.vic-tag { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--vt); }
+.vic-big { font-size: 60px; font-weight: 900; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.vic-big small { font-size: 18px; font-weight: 600; margin-left: 4px; color: #9a9a9a; letter-spacing: 0; }
+.vic-sub { color: #a8a8a8; font-size: 14px; text-transform: capitalize; }
+.vic-stats { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.vic-st { display: grid; gap: 2px; padding: 10px 8px; border-radius: 14px; background: #161618; border: 1px solid #262628; }
+.vic-st span { font-size: 11px; color: #8a8a8a; text-transform: uppercase; letter-spacing: .06em; }
+.vic-st b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.vic-ok { margin-top: 10px; width: 100%; padding: 14px; border-radius: 16px; font-weight: 800; color: #000; background: var(--vt); }
+@media (prefers-reduced-motion: reduce) { .vic *, .vic::after { animation-duration: .01s !important; animation-iteration-count: 1 !important; } }

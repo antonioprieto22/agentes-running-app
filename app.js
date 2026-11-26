@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.19.0';
+const VERSION = '2.20.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -289,6 +289,7 @@ function render() {
   if (seccion === 'run') renderRun(fecha);
   if (seccion === 'fuerza') renderFuerza(fecha);
   if (seccion === 'ajustes') renderAjustes();
+  setTimeout(() => celebrarPendientes(fecha), 350);
 }
 
 const ICON_RUN = '<svg viewBox="0 0 24 24"><circle cx="14" cy="4.5" r="1.8"/><path d="M8 21l3-6 3 2v4M6 12l3-4 4 1 2 4 3 1M11 15l-2-3"/></svg>';
@@ -2392,6 +2393,7 @@ function vistaCierre(fechaPasada, alGuardar) {
       await upsert('actividad', fecha, `${fecha},${pasos},${kcal}`, `cierre ${fecha}`);
       cerrarSheet(); render();
       alGuardar?.();
+      if (fechaPasada && !celebrados.has(refNutri(fecha))) celebrarNutri(fecha);
       const n = nutriDia(fecha), bal = Math.round(n.t.kcal - n.gasto);
       toast(`Día cerrado · ${bal < 0 ? 'déficit' : 'superávit'} ${fmt(Math.abs(bal))} kcal`);
     } catch (e) { toast(e.message); }
@@ -2465,7 +2467,8 @@ duracion_min en minutos decimales (tiempo en movimiento si aparece). recuperacio
       const guardada = csv('entrenos').rows.filter(r => r.fecha === f).at(-1);
       if (guardada && cfg.gemini) {
         $('#e-save').disabled = true; $('#e-save').innerHTML = '<i class="spinner"></i> Analizando el entreno…';
-        try { await analizarSesion(guardada); runTab = 'resumen'; cerrarSheet(); render(); inmersion(guardada); return; }
+        // Primero la celebración; al pulsar «Continuar» se abre el análisis.
+        try { await analizarSesion(guardada); runTab = 'resumen'; marcarCelebrado(refRun(guardada)); cerrarSheet(); render(); celebrarRun(guardada, () => inmersion(guardada)); return; }
         catch (err) { toast(err.message); }
       }
       cerrarSheet(); toast('Entreno guardado ✓'); render();
@@ -2476,6 +2479,101 @@ duracion_min en minutos decimales (tiempo en movimiento si aparece). recuperacio
 const haceCuanto = t => { const m = Math.round((Date.now() - t) / 6e4); return m < 1 ? 'ahora mismo' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} d`; };
 // Vibración breve (Android): sensación de app nativa. iOS la ignora.
 const vibrar = (ms = 10) => { try { navigator.vibrate?.(ms); } catch { /* sin vibración */ } };
+
+// ---------- Celebración de logros (animación tipo videojuego + tarjeta final que se monta pieza a pieza) ----------
+// Cada logro se celebra una sola vez por dispositivo (lista en localStorage).
+const celebrados = (() => { try { return new Set(JSON.parse(localStorage.getItem('celebrados') || '[]')); } catch { return new Set(); } })();
+function marcarCelebrado(ref) {
+  celebrados.add(ref);
+  try { localStorage.setItem('celebrados', JSON.stringify([...celebrados].slice(-80))); } catch { /* sin almacenamiento */ }
+}
+let celebrando = false;
+const refNutri = f => 'n:' + f, refRun = e => 'r:' + refDe(e), refFz = s => `f:${s.fecha}|${s.rutina}`;
+
+// Tras pintar una sección, celebra su logro de hoy si aún no se había celebrado (y no hay nada abierto encima).
+function celebrarPendientes(hoy) {
+  const ocupado = celebrando || $('#splash') || !$('#inmersion').hidden || !$('#sheet').hidden || ($('#hist') && !$('#hist').hidden);
+  if (ocupado) return;
+  if (seccion === 'nutri' && nutriDia(hoy).gasto != null && !celebrados.has(refNutri(hoy))) return celebrarNutri(hoy);
+  if (seccion === 'run') { const e = csv('entrenos').rows.filter(x => x.fecha === hoy).at(-1); if (e && !celebrados.has(refRun(e))) return celebrarRun(e); }
+  if (seccion === 'fuerza') { const s = csv('fuerza').rows.filter(x => x.fecha === hoy).at(-1); if (s && !celebrados.has(refFz(s))) return celebrarFuerza(s); }
+}
+
+const VIC_FLECHA = '<svg viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg>';
+const reducido = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const piezas = filas => filas.filter(Boolean).map(([k, v], i) => `<div class="vic-st vic-pieza" style="--i:${i + 3}"><span>${k}</span><b>${v}</b></div>`).join('');
+
+function victoria({ clase, escena, tarjeta, duracion = 2600, alFin }) {
+  celebrando = true;
+  const v = document.createElement('div');
+  v.className = 'vic ' + clase;
+  v.innerHTML = `<div class="vic-escena">${escena}</div>
+    <div class="vic-card" hidden>${tarjeta}<button class="vic-ok vic-pieza" style="--i:9">Continuar</button></div>`;
+  document.body.appendChild(v);
+  navigator.vibrate?.([40, 60, 40, 60, 160]);
+  requestAnimationFrame(() => v.classList.add('on'));
+  setTimeout(() => {
+    v.classList.add('fin');
+    $('.vic-card', v).hidden = false;
+    $$('[data-contar]', v).forEach(el => contar(el, +el.dataset.contar, el.dataset.pre || '', +(el.dataset.dec || 0)));
+  }, reducido() ? 250 : duracion);
+  const cerrar = () => {
+    v.classList.add('sale');
+    setTimeout(() => { v.remove(); celebrando = false; alFin?.(); }, 350);
+  };
+  $('.vic-ok', v).addEventListener('click', cerrar);
+}
+
+// Nutrición: déficit → flechas que caen (bordes verdes); superávit → flechas que suben (bordes rojos).
+function celebrarNutri(f, alFin) {
+  marcarCelebrado(refNutri(f));
+  const n = nutriDia(f), bal = Math.round(n.t.kcal - n.gasto), def = bal < 0, dir = def ? 'baja' : 'sube';
+  const flechas = Array.from({ length: 16 }, (_, i) => `<i class="vic-fl ${dir}" style="--x:${(i * 37) % 96}%;--d:${(i * 0.09).toFixed(2)}s;--s:${(0.6 + (i % 4) * 0.25).toFixed(2)}">${VIC_FLECHA}</i>`).join('');
+  victoria({
+    clase: def ? 'vic-def' : 'vic-sup', alFin,
+    escena: `${flechas}<div class="vic-centro"><span class="vic-medidor ${dir}"><i></i></span><b class="vic-grito">${def ? 'DÉFICIT' : 'SUPERÁVIT'}</b></div>`,
+    tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">${f === ahora().fecha ? 'Día cerrado' : `${DIAS[dow(f)]} ${diaMes(f)} cerrado`}</span>
+      <b class="vic-big vic-pieza" style="--i:1"><span data-contar="${Math.abs(bal)}" data-pre="${def ? '−' : '+'}">0</span><small>kcal</small></b>
+      <span class="vic-sub vic-pieza" style="--i:2">${def ? `≈ ${(Math.abs(bal) / 7700).toFixed(2).replace('.', ',')} kg de grasa` : 'Mañana compensa con un día más ligero'}</span>
+      <div class="vic-stats">${piezas([['Ingesta', `${fmt(n.t.kcal)} kcal`], ['Gasto', `${fmt(n.gasto)} kcal`], n.act?.pasos && ['Pasos', fmt(num(n.act.pasos))], ['Proteína', `${Math.round(n.t.P)} g`]])}</div>`,
+  });
+}
+
+// Running: series → velocidad máxima; Zona 2 → latido lento; rodaje/tirada → velocidad moderada.
+function celebrarRun(e, alFin) {
+  marcarCelebrado(refRun(e));
+  const t = tipoSesion(`${e.tipo} ${e.notas}`);
+  const modo = t === 'series' || t === 'carrera' ? 'rapido' : t === 'z2' ? 'z2' : 'medio';
+  const rayas = n => Array.from({ length: n }, (_, i) => `<i class="vic-raya" style="--y:${(i * 53) % 100}%;--w:${30 + (i * 17) % 40}%;--d:${((i * 0.13) % 0.9).toFixed(2)}s"></i>`).join('');
+  const escena = modo === 'z2'
+    ? `<div class="vic-centro"><svg class="vic-corazon" viewBox="0 0 24 24"><path d="M12 21s-8-5.2-8-11.2A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 2.8C20 15.8 12 21 12 21z"/></svg>
+        <svg class="vic-ecg" viewBox="0 0 200 40"><path d="M0 20h60l8-12 10 24 8-18 6 6h108"/></svg><b class="vic-grito">ZONA 2</b></div>`
+    : `${rayas(modo === 'rapido' ? 22 : 12)}<div class="vic-centro"><span class="vic-sym">${SIMBOLO[t]}</span><b class="vic-grito">${modo === 'rapido' ? '¡A TOPE!' : '¡SESIÓN HECHA!'}</b></div>`;
+  victoria({
+    clase: `vic-run vic-${modo}`, alFin, duracion: modo === 'z2' ? 2900 : 2500, escena,
+    tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">Logro del día · ${esc(e.tipo)}</span>
+      <b class="vic-big vic-pieza" style="--i:1"><span data-contar="${num(e.distancia_km)}" data-dec="2">0</span><small>km</small></b>
+      <span class="vic-sub vic-pieza" style="--i:2">${DIAS_LARGOS[dow(e.fecha)]} ${diaMes(e.fecha)}</span>
+      <div class="vic-stats">${piezas([['Tiempo', `${esc(e.duracion_min)}'`], ['Ritmo', `${esc(e.ritmo_min_km)}/km`], e.fc_media && ['FC media', `${esc(e.fc_media)} ppm`], e.rpe && ['Esfuerzo', `RPE ${esc(e.rpe)}`]])}</div>`,
+  });
+}
+
+// Fuerza: siempre un levantamiento de pesas.
+function celebrarFuerza(s, alFin) {
+  marcarCelebrado(refFz(s));
+  victoria({
+    clase: 'vic-fz', alFin, duracion: 2700,
+    escena: `<div class="vic-centro"><svg class="vic-pesa" viewBox="0 0 220 70">
+        <rect x="18" y="32" width="184" height="6" rx="3" class="barra"/>
+        <rect x="22" y="14" width="14" height="42" rx="3"/><rect x="38" y="20" width="10" height="30" rx="3"/>
+        <rect x="184" y="14" width="14" height="42" rx="3"/><rect x="172" y="20" width="10" height="30" rx="3"/></svg>
+      <b class="vic-grito">¡FUERZA!</b></div>`,
+    tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">Fuerza completada</span>
+      <b class="vic-big vic-pieza cap" style="--i:1;font-size:34px">${esc(s.rutina)}</b>
+      <span class="vic-sub vic-pieza" style="--i:2">${DIAS_LARGOS[dow(s.fecha)]} ${diaMes(s.fecha)}</span>
+      <div class="vic-stats">${piezas([['Duración', `${esc(s.duracion_min)} min`], s.rpe && ['Esfuerzo', `RPE ${esc(s.rpe)}`], s.carga && ['Carga', esc(s.carga)], s.notas && ['Notas', esc(s.notas)]])}</div>`,
+  });
+}
 
 // ---------- navegación ----------
 function irA(sec, dir) {
