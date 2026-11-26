@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.18.0';
+const VERSION = '2.19.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -495,10 +495,17 @@ function bloqueSemana(l, hoy) {
   const cajas = dias.map((d, i) => {
     const et = `<span class="hb-d">${DIAS[dow(d.f)]} <em>${+d.f.slice(8)}</em></span>`;
     if (d.fut) return `<div class="hb-dia fut"><span class="hb-ic vacio"></span>${et}<b class="hb-txt">—</b></div>`;
-    if (d.bal == null) return `<div class="hb-dia ${d.f === hoy ? 'hoy' : 'vacio'}"><span class="hb-ic vacio"></span>${et}<b class="hb-txt">${d.f === hoy ? `En curso · ${fmt(d.kcal)} kcal` : d.comidas ? 'Sin cerrar' : 'Sin datos'}</b></div>`;
-    const def = d.bal < 0;
-    return `<div class="hb-dia ${def ? 'def' : 'sup'}" style="--w:${Math.round(Math.abs(d.bal) / max * 100)}%;--d:${i * 60}ms">
-      <i class="hb-fill"></i><span class="hb-ic">${def ? HB_OK : HB_KO}</span>${et}<b>${kcalTxt(d.bal)}<small> kcal</small></b></div>`;
+    // Día pasado con comidas pero sin datos del reloj → se puede cerrar desde aquí.
+    if (d.bal == null && d.f < hoy && d.comidas) return `<button class="hb-dia vacio cerrable" data-cerrar="${d.f}"><span class="hb-ic vacio"></span>${et}<b class="hb-txt">Sin cerrar</b><span class="hb-cta">Cerrar ›</span></button>`;
+    if (d.bal == null) return `<div class="hb-dia ${d.f === hoy ? 'hoy' : 'vacio'}"><span class="hb-ic vacio"></span>${et}<b class="hb-txt">${d.f === hoy ? `En curso · ${fmt(d.kcal)} kcal` : 'Sin datos'}</b></div>`;
+    const def = d.bal < 0, gasto = d.kcal - d.bal, tope = Math.max(d.kcal, gasto, 1);
+    // Al tocarla, la tarjeta muestra dos barras (ingesta y gasto) a escala para ver el balance de un vistazo.
+    return `<div class="hb-dia ${def ? 'def' : 'sup'}" data-ver role="button" style="--w:${Math.round(Math.abs(d.bal) / max * 100)}%;--d:${i * 60}ms">
+      <i class="hb-fill"></i><span class="hb-ic">${def ? HB_OK : HB_KO}</span>${et}<b>${kcalTxt(d.bal)}<small> kcal</small></b>
+      <span class="hb-cmp" aria-hidden="true">
+        <span class="hb-cb in" style="--p:${Math.round(d.kcal / tope * 100)}%"><span>Ingesta</span><b>${fmt(d.kcal)}</b></span>
+        <span class="hb-cb ga" style="--p:${Math.round(gasto / tope * 100)}%"><span>Gasto</span><b>${fmt(gasto)}</b></span>
+      </span></div>`;
   }).join('');
   const puntos = dias.map(d => `<i class="${d.bal == null ? '' : d.bal < 0 ? 'def' : 'sup'}"></i>`).join('');
   return `<section class="hb-sem">
@@ -548,26 +555,39 @@ function paginar(track, dots) {
   const upd = () => { const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)); [...dots.children].forEach((d, k) => d.classList.toggle('on', k === i)); };
   track.addEventListener('scroll', upd, { passive: true }); upd();
 }
-function abrirHistorial() {
+// foco: fecha cuya semana se muestra al abrir (por defecto, la actual). recargar: re-pinta sin añadir otra entrada de «atrás».
+function abrirHistorial(foco, recargar) {
   const hoy = ahora().fecha, meses = [];
+  const sems = semanasHist(hoy), iFoco = foco ? sems.findIndex(l => foco >= l && foco <= addDays(l, 6)) : -1;
   for (let m = primerDia().slice(0, 7); m <= hoy.slice(0, 7); m = sigMes(m)) meses.push(m);
   let el = $('#hist');
   if (!el) { el = document.createElement('div'); el.id = 'hist'; el.className = 'hist'; document.body.appendChild(el); }
   el.innerHTML = `
     <div class="hist-bar"><button class="icon-btn" id="hist-x" aria-label="Cerrar">${ICON_X}</button><b id="hist-tit">Historial de balance</b></div>
     <div class="hist-pages" id="hist-pages">
-      <section class="hist-page"><div class="hist-track" id="hb-track">${semanasHist(hoy).map(l => bloqueSemana(l, hoy)).join('')}</div>
+      <section class="hist-page"><div class="hist-track" id="hb-track">${sems.map(l => bloqueSemana(l, hoy)).join('')}</div>
         <div class="hist-dots" id="hb-dots"></div>
         <p class="hist-hint">${ICON_DOWN}Desliza hacia abajo · balance mensual</p></section>
       <section class="hist-page"><div class="hist-track" id="hm-track">${meses.map(m => bloqueMes(m, hoy)).join('')}</div>
         <div class="hist-dots" id="hm-dots"></div></section>
     </div>`;
   el.hidden = false; document.body.classList.add('hist-on');
-  navPush();
-  // Se abre en la semana y el mes actuales; lo anterior queda a la izquierda.
+  if (!recargar) navPush();
+  // Se abre en la semana y el mes actuales (o en la semana del día recién cerrado); lo anterior queda a la izquierda.
   requestAnimationFrame(() => {
-    for (const [t, d] of [['#hb-track', '#hb-dots'], ['#hm-track', '#hm-dots']]) { $(t).scrollLeft = $(t).scrollWidth; paginar($(t), $(d)); }
+    for (const [t, d] of [['#hb-track', '#hb-dots'], ['#hm-track', '#hm-dots']]) {
+      const tr = $(t);
+      tr.scrollLeft = t === '#hb-track' && iFoco >= 0 ? iFoco * tr.clientWidth : tr.scrollWidth;
+      paginar(tr, $(d));
+    }
   });
+  // Toques en los días: cerrar uno pendiente o ver sus barras de ingesta/gasto.
+  el.onclick = e => {
+    const c = e.target.closest('[data-cerrar]');
+    if (c) return cerrarDiaPasado(c.dataset.cerrar);
+    const v = e.target.closest('.hb-dia[data-ver]');
+    if (v) v.classList.toggle('ver');
+  };
   const pages = $('#hist-pages');
   pages.addEventListener('scroll', () => {
     $('#hist-tit').textContent = pages.scrollTop > pages.clientHeight / 2 ? 'Balance mensual' : 'Historial de balance';
@@ -580,12 +600,19 @@ function abrirHistorial() {
   $('#hist-x').addEventListener('click', cerrarHistorial);
 }
 function cerrarHistorial() { const el = $('#hist'); if (el) el.hidden = true; document.body.classList.remove('hist-on'); }
+// Cierre de un día anterior desde el historial: la hoja se abre por encima y, al guardar, el historial se actualiza en esa semana.
+function cerrarDiaPasado(f) {
+  $('#sheet').hidden = false; $('#sheet').classList.add('sobre');
+  navPush();
+  vistaCierre(f, () => abrirHistorial(f, true));
+}
 
 // ---------- «Atrás» del sistema (gesto lateral de Android / botón atrás) ----------
 // Cada sección, subpestaña o capa abierta deja una entrada en el historial: «atrás» la deshace en vez de salir de la app.
 // Si una entrada ya no cambia nada (p. ej. la hoja se cerró con la X), se salta sola hasta la anterior que sí lo haga.
 let navPop = false;
 function capaAbierta() {
+  if (!$('#sheet').hidden && $('#sheet').classList.contains('sobre')) return 'sheet';   // cierre de un día pasado, encima del historial
   if ($('#hist') && !$('#hist').hidden) return 'hist';
   if (!$('#inmersion').hidden) return 'inm';
   if (!$('#sheet').hidden) return 'sheet';
@@ -1766,7 +1793,7 @@ function abrirSheet(vista) {
   if (vista === 'peso') return vistaPeso();
   vistaInicio();
 }
-function cerrarSheet() { pararCamara(); $('#sheet').hidden = true; }
+function cerrarSheet() { pararCamara(); $('#sheet').hidden = true; $('#sheet').classList.remove('sobre'); }
 
 function cabeceraComida() {
   return `<div class="chips meal-chips">${COMIDAS.map(c => `<button class="chip ${c === comidaSel ? 'on' : ''}" data-cs="${c}">${EMOJI[c]}${c}</button>`).join('')}</div>`;
@@ -2347,20 +2374,24 @@ function vistaPeso() {
     catch (e) { toast(e.message); }
   });
 }
-function vistaCierre() {
-  const { fecha } = ahora(), act = csv('actividad').rows.find(r => r.fecha === fecha);
-  $('#sheet-title').textContent = 'Cerrar el día';
-  $('#sheet-body').innerHTML = `${volver()}<div class="stack">
+// fechaPasada: cerrar un día anterior (desde el historial). alGuardar: qué refrescar después.
+function vistaCierre(fechaPasada, alGuardar) {
+  const fecha = fechaPasada || ahora().fecha, act = csv('actividad').rows.find(r => r.fecha === fecha);
+  const n0 = nutriDia(fecha);
+  $('#sheet-title').textContent = fechaPasada ? `Cerrar el ${DIAS[dow(fecha)]} ${diaMes(fecha)}` : 'Cerrar el día';
+  $('#sheet-body').innerHTML = `${fechaPasada ? '' : volver()}<div class="stack">
+    ${fechaPasada ? `<p class="muted">Ese día comiste <b>${fmt(n0.t.kcal)} kcal</b>. Mete los datos del reloj de ese día (Mi Fitness → historial).</p>` : ''}
     <div class="row2"><div class="big-input"><input id="c-pasos" type="number" inputmode="numeric" value="${esc(act?.pasos || '')}" placeholder="14000"><span>pasos</span></div>
     <div class="big-input"><input id="c-kcal" type="number" inputmode="numeric" value="${esc(act?.kcal_activas || '')}" placeholder="700"><span>kcal activas</span></div></div>
     <button class="btn primary" id="c-ok">Cerrar el día</button></div>`;
-  bindVolver();
+  if (!fechaPasada) bindVolver();
   $('#c-ok').addEventListener('click', async () => {
     const pasos = Math.round(num($('#c-pasos').value)), kcal = Math.round(num($('#c-kcal').value));
     if (!kcal) return toast('Indica las kcal activas');
     try {
       await upsert('actividad', fecha, `${fecha},${pasos},${kcal}`, `cierre ${fecha}`);
       cerrarSheet(); render();
+      alGuardar?.();
       const n = nutriDia(fecha), bal = Math.round(n.t.kcal - n.gasto);
       toast(`Día cerrado · ${bal < 0 ? 'déficit' : 'superávit'} ${fmt(Math.abs(bal))} kcal`);
     } catch (e) { toast(e.message); }

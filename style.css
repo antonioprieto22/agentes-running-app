@@ -818,3 +818,26 @@ body.hist-on { overflow: hidden; }
 .gg-bar.lleno em { background: var(--ko); }
 .gg-tope { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .gg-tope input { width: 90px; text-align: right; }
+
+/* ===== Historial: cerrar días anteriores y barras de ingesta / gasto ===== */
+.sheet.sobre { z-index: 35; }                       /* la hoja de cierre se abre por encima del historial */
+button.hb-dia { width: 100%; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.hb-dia.cerrable { opacity: 1; border: 1.5px dashed var(--acc); }
+.hb-dia.cerrable .hb-txt { color: var(--text); }
+.hb-cta { font-size: 13px; font-weight: 700; color: var(--acc); white-space: nowrap; }
+.hb-dia.cerrable:active, .hb-dia[data-ver]:active { transform: scale(.98); }
+.hb-dia[data-ver] { cursor: pointer; transition: transform .15s; }
+/* Vista de barras: ocupa toda la tarjeta */
+.hb-dia > .hb-cmp { position: absolute; inset: 4px 8px; display: grid; grid-template-rows: 1fr 1fr; gap: 3px; opacity: 0; pointer-events: none; transition: opacity .25s; }
+.hb-dia > *:not(.hb-cmp) { transition: opacity .2s; }
+.hb-dia.ver > *:not(.hb-cmp) { opacity: 0; }
+.hb-dia.ver > .hb-cmp { opacity: 1; }
+.hb-cb { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px;
+  border-radius: 7px; background: color-mix(in srgb, var(--text) 6%, transparent); font-size: 11px; font-weight: 600; }
+.hb-cb::before { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--p); border-radius: 7px; transform-origin: left; }
+.hb-dia.ver .hb-cb::before { animation: grow .6s cubic-bezier(.2,.9,.3,1) both; }
+.hb-dia.ver .hb-cb.ga::before { animation-delay: .08s; }
+.hb-cb.in::before { background: linear-gradient(90deg, color-mix(in srgb, var(--n-acc) 70%, transparent), color-mix(in srgb, var(--n-acc2) 45%, transparent)); }
+.hb-cb.ga::before { background: linear-gradient(90deg, color-mix(in srgb, #fc4c02 70%, transparent), color-mix(in srgb, #ff8a3d 45%, transparent)); }
+.hb-cb > * { position: relative; }
+.hb-cb b { font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
