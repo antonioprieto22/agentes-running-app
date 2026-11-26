@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.25.2';
+const VERSION = '2.25.3';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1569,10 +1569,14 @@ const kmTxt = v => String(Math.round(num(v) * 100) / 100).replace('.', ',');
 const seriesGuardadas = new Set();
 async function registrarSeries(e) {
   const rs = resumenSeries(e);
-  if (!rs || /Series: \d/.test(e.notas || '') || seriesGuardadas.has(e._raw)) return;
+  if (!rs || seriesGuardadas.has(e._raw)) return;
+  const nueva = lineaSeries(rs), trozos = (e.notas || '').split(/\s+·\s+/).filter(Boolean);
+  const k = trozos.findIndex(x => /^Series: \d/.test(x));
+  if (k >= 0 && trozos[k] === nueva) return;                 // ya está al día
+  if (k >= 0) trozos[k] = nueva; else trozos.push(nueva);    // nueva o actualizada (p. ej. tras mejorar la detección)
   seriesGuardadas.add(e._raw);
   const { header } = csv('entrenos');
-  const linea = toLine(header, { ...e, notas: limpio([e.notas, lineaSeries(rs)].filter(Boolean).join(' · ')) });
+  const linea = toLine(header, { ...e, notas: limpio(trozos.join(' · ')) });
   await modify('entrenos', t => t.split('\n').map(l => (l === e._raw ? linea : l)).join('\n'), `series registradas ${e.fecha}: ${rs.n} a ${rs.ritmo}`).catch(() => {});
 }
 
