@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.25.3';
+const VERSION = '2.25.4';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -766,7 +766,11 @@ let ruedaIdx = 0, ruedaN = 0;
 
 function renderRun(hoy, dir) {
   const ent7 = csv('entrenos').rows.filter(e => e.fecha >= addDays(hoy, -7));
-  ent7.filter(e => e.strava_id && ent7.filter(x => x.fecha === e.fecha).length === 1).forEach(e => registrarSeries(e));   // solo sesiones ya únicas
+  const porDia = ent7.reduce((m, e) => m.set(e.fecha, (m.get(e.fecha) || 0) + 1), new Map());
+  for (const e of ent7) if (e.strava_id && porDia.get(e.fecha) === 1) {   // solo sesiones ya únicas
+    registrarSeries(e);
+    if (seriesCaducadas(e)) reanalizarSeries(e);
+  }
   const r = runInfo(hoy), plan = planRows();
   const hechos = new Set(r.all.map(e => e.fecha));
   // La semana va arriba del todo (misma altura que en Fuerza), encima de los tres botones.
@@ -1508,6 +1512,20 @@ async function repoApi(path, opts = {}) {
 // ---------- Análisis del entrenador (Gemini) ----------
 const enCurso = new Set();
 const fallidos = new Map();   // ref → motivo (no se reintenta solo hasta que lo pidas)
+// Huella de las series con las que se hizo un análisis (si la detección mejora, el análisis se rehace solo).
+const firmaSeries = rs => `<!-- series:${rs.n}@${rs.ritmo} -->`;
+const reanalizados = new Set();
+function seriesCaducadas(e) {
+  const a = analisisDe(e), rs = a && resumenSeries(e);
+  return !!(rs && !a.includes('ajuste aplicado') && !a.includes(firmaSeries(rs)));
+}
+async function reanalizarSeries(e) {
+  const ref = refDe(e);
+  if (!cfg.gemini || reanalizados.has(ref) || enCurso.has(ref)) return;
+  reanalizados.add(ref);
+  await borrarAnalisis(e).catch(() => {});
+  analizarAuto(e);
+}
 async function analizarAuto(e) {
   const ref = refDe(e);
   if (enCurso.has(ref)) return;
@@ -1519,10 +1537,19 @@ async function analizarAuto(e) {
   finally { enCurso.delete(ref); if (seccion === 'run' && runTab === 'resumen') renderRun(ahora().fecha); }
 }
 // Series reales detectadas en Strava para una sesión (también si está unificada: "id1+id2").
+let memoSeries = { txt: null, reg: null, J: {}, map: null, res: new Map() };
 function seriesDe(e) {
-  let J = {};
-  try { J = JSON.parse(D.intervalos?.text || '{}'); } catch { J = {}; }
-  const reg = new Map(csv('stravaReg').rows.map(r => [r.strava_id, r]));
+  const txt = D.intervalos?.text || '', regRows = csv('stravaReg').rows;
+  if (memoSeries.txt !== txt || memoSeries.reg !== regRows) {
+    let J = {};
+    try { J = JSON.parse(txt || '{}'); } catch { J = {}; }
+    memoSeries = { txt, reg: regRows, J, map: new Map(regRows.map(r => [r.strava_id, r])), res: new Map() };
+  }
+  const clave = e.strava_id || '';
+  if (!memoSeries.res.has(clave)) memoSeries.res.set(clave, calcSeries(e, memoSeries.J, memoSeries.map));
+  return memoSeries.res.get(clave);
+}
+function calcSeries(e, J, reg) {
   // Actividades de la sesión en orden cronológico (los ids de Strava crecen con el tiempo).
   const ids = (e.strava_id || '').split('+').filter(Boolean).sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
   const acts = ids.map(id => {
@@ -1537,12 +1564,12 @@ function seriesDe(e) {
     const corta = acts.length > 1 && a.km <= 1.2 && a.ritmoS && a.ritmoS <= lenta * 0.88;   // actividad corta y rápida = una serie entera
     if (a.j.reps?.length && !corta) { reps.push(...a.j.reps); descansos.push(...(a.j.descansos || [])); }
     else if (corta || (acts.length > 1 && a.km <= 2.5 && a.ritmoS && a.ritmoS <= lenta * 0.88)) {
-      reps.push({ km: a.km, seg: a.seg, ritmo: `${Math.floor(a.ritmoS / 60)}:${String(Math.round(a.ritmoS % 60)).padStart(2, '0')}`, fc: a.fc });
+      reps.push({ km: a.km, seg: a.seg, ritmo: segTxt(a.ritmoS), fc: a.fc });
     }
   }
   return { reps: reps.length >= 2 ? reps : [], descansos: reps.length >= 2 ? descansos : [], analizada: acts.some(a => a.j.v) };
 }
-const segTxt = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+const segTxt = s => { const r = Math.round(s); return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`; };
 // Series de una sesión: de intervalos.json (Strava) o, si no, de la línea «Series: …» guardada en las notas.
 function seriesSesion(e) {
   const sr = seriesDe(e);
@@ -1592,7 +1619,7 @@ Zonas: rodajes Z2 con alerta de FC en 148–152 ppm. Mi Fitness es más fiable q
 Reglas: progresión prudente (≤10 % de volumen semanal), descarga cada 3–4 semanas, ACWR >1,3 = vigilar. Si hay dolor o molestia: no progresar y recomendar consultar a un profesional. Sin consejos médicos.
 
 SESIÓN A ANALIZAR: ${e.fecha} ${e.tipo} ${e.distancia_km} km en ${e.duracion_min} min (${e.ritmo_min_km}/km), FC media ${e.fc_media || '?'}, desnivel ${e.desnivel_m || '?'}, RPE ${e.rpe || '?'}, notas: "${e.notas}", fuente ${e.fuente}.
-${(() => { const sr = seriesDe(e); return sr.reps.length ? `SERIES REALES (detectadas en Strava segundo a segundo, SIN los descansos): ${sr.reps.map((r, i) => `S${i + 1} ${Math.round(r.km * 1000)} m a ${r.ritmo}/km${r.fc ? ` (${r.fc} ppm)` : ''}`).join('; ')}${sr.descansos.length ? `; descansos de ~${segTxt(sr.descansos.reduce((a, b) => a + b, 0) / sr.descansos.length)}` : ''}. Valora el ritmo de las series con ESTOS datos, no con el ritmo medio total (que incluye calentamiento y descansos).\n` : ''; })()}Sesión planificada ese día: ${planHoy ? `${planHoy.sesion} — ${planHoy.detalle}` : 'ninguna'}.
+${(() => { const sr = seriesSesion(e); return sr.reps.length ? `SERIES REALES (detectadas en Strava segundo a segundo, SIN los descansos): ${sr.reps.map((r, i) => `S${i + 1} ${Math.round(r.km * 1000)} m a ${r.ritmo}/km${r.fc ? ` (${r.fc} ppm)` : ''}`).join('; ')}${sr.descansos.length ? `; descansos de ~${segTxt(sr.descansos.reduce((a, b) => a + b, 0) / sr.descansos.length)}` : ''}. Valora el ritmo de las series con ESTOS datos, no con el ritmo medio total (que incluye calentamiento y descansos).\n` : ''; })()}Sesión planificada ese día: ${planHoy ? `${planHoy.sesion} — ${planHoy.detalle}` : 'ninguna'}.
 
 Historial 5 semanas:
 ${hist}
@@ -1620,8 +1647,9 @@ async function analizarSesion(e) {
   const { fecha } = ahora();
   const ses = (out.ajuste?.necesario && Array.isArray(out.ajuste.sesiones) ? out.ajuste.sesiones : [])
     .filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s.fecha) && s.fecha > fecha && s.sesion).slice(0, 21);
+  const rsA = resumenSeries(e);
   const bloque = [
-    `## ${e.fecha} · ${e.tipo} ${e.distancia_km} km <!-- ref:${refDe(e)} -->`,
+    `## ${e.fecha} · ${e.tipo} ${e.distancia_km} km <!-- ref:${refDe(e)} -->${rsA ? ' ' + firmaSeries(rsA) : ''}`,
     `**Valoración:** ${v} — ${limpio(out.titulo || '')}`,
     ...(out.positivo || []).slice(0, 3).map(x => `- ✅ ${limpio(x)}`),
     ...(out.mejorar || []).slice(0, 3).map(x => `- 🔧 ${limpio(x)}`),
@@ -2726,8 +2754,8 @@ function encuestaDia(f, dia) {
   const resumen = () => {
     const elegidas = dia.filter((_, i) => sel.has(i));
     const km = elegidas.reduce((s, r) => s + num(r.distancia_km), 0), min = elegidas.reduce((s, r) => s + num(r.duracion_min), 0);
-    const seg = km ? Math.round((min / km) * 60) : 0;
-    $('#enc-res', v).textContent = elegidas.length ? `${elegidas.length} de ${dia.length} · ${String(Math.round(km * 100) / 100).replace('.', ',')} km en ${String(r1(min)).replace('.', ',')}' · ${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, '0')}/km` : 'Marca al menos una';
+    const seg = km ? (min / km) * 60 : 0;
+    $('#enc-res', v).textContent = elegidas.length ? `${elegidas.length} de ${dia.length} · ${kmTxt(km)} km en ${String(r1(min)).replace('.', ',')}' · ${segTxt(seg)}/km` : 'Marca al menos una';
     $('#enc-ok', v).disabled = !elegidas.length;
     $('#enc-ok', v).textContent = elegidas.length > 1 ? `Unificar ${elegidas.length} y analizar` : 'Quedarme con esta';
   };
@@ -2756,7 +2784,7 @@ async function separarSesion(e) {
   const reg = new Map(csv('stravaReg').rows.map(r => [r.strava_id, r]));
   const ids = (e.strava_id || '').split('+').filter(Boolean);
   const { header } = csv('entrenos');
-  const propias = (e.notas || '').split(/\s+·\s+/).filter(x => x && !/^Parciales|^Series: \d|^\d[\d.]*\s*km\s/.test(x));
+  const propias = (e.notas || '').split(/\s+·\s+/).filter(x => x && !NOTA_AUTO.test(x));
   const partes = ids.map((id, k) => {
     const r = reg.get(id);
     if (!r) return null;
@@ -2774,13 +2802,13 @@ async function separarSesion(e) {
 // Quita la actividad repetida y la marca como descartada en el registro de Strava (así la sincronización no la vuelve a traer).
 async function descartarActividad(e, silencioso) {
   await modify('entrenos', t => t.split('\n').filter(l => l !== e._raw).join('\n'), `descarta actividad repetida ${e.fecha} ${e.distancia_km} km`);
-  for (const id of (e.strava_id || '').split('+').filter(Boolean)) {
-    await modify('stravaReg', t => t.split('\n').map(l => (l.split(',')[7] === id ? l.replace(/,[^,]*$/, ',descartada (no cuenta)') : l)).join('\n'),
-      `strava: ${id} descartada`).catch(() => {});
-  }
+  const ids = new Set((e.strava_id || '').split('+').filter(Boolean));
+  if (ids.size) await modify('stravaReg', t => t.split('\n').map(l => (ids.has(l.split(',')[7]) ? l.replace(/,[^,]*$/, ',descartada (no cuenta)') : l)).join('\n'),
+    `strava: ${[...ids].join('+')} descartada`).catch(() => {});
   if (!silencioso) toast('Actividad descartada ✓');
 }
 
+const NOTA_AUTO = /^Parciales|^Series: \d|^\d[\d.]*\s*km\s/;   // notas que genera la app (no las del usuario)
 const PRIO_TIPO = ['competicion', 'series', 'tempo', 'fartlek', 'cuestas', 'tirada', 'rodaje'];
 async function unificarDia(f) {
   revisando = true;
@@ -2795,10 +2823,10 @@ async function unificarDia(f) {
       const ponderada = k => { const rs = dia.filter(r => num(r[k])), m = suma(rs, 'duracion_min'); return m ? Math.round(rs.reduce((acc, r) => acc + num(r[k]) * num(r.duracion_min), 0) / m) : ''; };
       const fc = ponderada('fc_media'), rpe = ponderada('rpe'), seg = Math.round((min / km) * 60);
       const parciales = dia.map(r => `${r1(num(r.distancia_km))} km ${r1(num(r.duracion_min))}' a ${r.ritmo_min_km}`).join(' · ');
-      const otras = [...new Set(dia.flatMap(r => (r.notas || '').split(/\s+·\s+/)).filter(n => n && !/^Parciales|^Series: \d|^\d[\d.]*\s*km\s/.test(n)))];
+      const otras = [...new Set(dia.flatMap(r => (r.notas || '').split(/\s+·\s+/)).filter(n => n && !NOTA_AUTO.test(n)))];
       const fila = {
         fecha: f, tipo: PRIO_TIPO.find(p => dia.some(r => norm(r.tipo) === p)) || dia[0].tipo,
-        distancia_km: km, duracion_min: min, ritmo_min_km: `${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, '0')}`,
+        distancia_km: km, duracion_min: min, ritmo_min_km: segTxt(seg),
         desnivel_m: suma(dia, 'desnivel_m') || '', fc_media: fc, rpe, carga: rpe ? Math.round(rpe * min) : '',
         notas: limpio([`Parciales: ${parciales}`, ...otras].join(' · ')),
         fuente: dia.every(r => r.fuente === 'strava') ? 'strava' : 'manual',
