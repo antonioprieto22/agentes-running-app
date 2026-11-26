@@ -6,17 +6,17 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.23.0';
+const VERSION = '2.24.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
   comidas: 'nutricion/comidas.csv', alimentos: 'nutricion/alimentos.csv', actividad: 'nutricion/actividad.csv',
   entrenos: 'running/entrenos.csv', peso: 'peso.csv', analisis: 'running/analisis.md',
-  stravaEstado: 'running/strava-estado.json', stravaReg: 'running/strava.csv',
+  stravaEstado: 'running/strava-estado.json', stravaReg: 'running/strava.csv', intervalos: 'running/intervalos.json',
   fuerza: 'fuerza/sesiones.csv', rutinas: 'fuerza/rutinas.md', valoraciones: 'nutricion/valoraciones.csv',
   recuperacion: 'running/recuperacion.csv',
 };
-const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg', 'fuerza', 'rutinas', 'valoraciones', 'recuperacion']);   // pueden no existir todavía
+const OPCIONALES = new Set(['analisis', 'stravaEstado', 'stravaReg', 'intervalos', 'fuerza', 'rutinas', 'valoraciones', 'recuperacion']);   // pueden no existir todavía
 const CLAUDE_URL = 'https://claude.ai/code';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const COMIDAS = ['desayuno', 'almuerzo', 'comida', 'merienda', 'cena', 'snack'];
@@ -1511,6 +1511,16 @@ async function analizarAuto(e) {
   catch (err) { fallidos.set(ref, err.message); }
   finally { enCurso.delete(ref); if (seccion === 'run' && runTab === 'resumen') renderRun(ahora().fecha); }
 }
+// Series reales detectadas en Strava para una sesión (también si está unificada: "id1+id2").
+function seriesDe(e) {
+  let J = {};
+  try { J = JSON.parse(D.intervalos?.text || '{}'); } catch { J = {}; }
+  const datos = (e.strava_id || '').split('+').map(id => J[id]).filter(Boolean);
+  const reps = datos.flatMap(x => x.reps || []), descansos = datos.flatMap(x => x.descansos || []);
+  return { reps, descansos, analizada: datos.length > 0, resumen: datos.map(x => x.resumen).filter(r => !/^sin/.test(r)).join(' + ') };
+}
+const segTxt = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
 function promptCoach(e) {
   const p = perfil(), { fecha } = ahora();
   const planTxt = planRows().filter(x => x.fecha >= addDays(fecha, -7)).map(x => `${x.fecha} ${x.dia}: ${x.sesion} — ${x.detalle}`).join('\n');
@@ -1523,7 +1533,7 @@ Zonas: rodajes Z2 con alerta de FC en 148–152 ppm. Mi Fitness es más fiable q
 Reglas: progresión prudente (≤10 % de volumen semanal), descarga cada 3–4 semanas, ACWR >1,3 = vigilar. Si hay dolor o molestia: no progresar y recomendar consultar a un profesional. Sin consejos médicos.
 
 SESIÓN A ANALIZAR: ${e.fecha} ${e.tipo} ${e.distancia_km} km en ${e.duracion_min} min (${e.ritmo_min_km}/km), FC media ${e.fc_media || '?'}, desnivel ${e.desnivel_m || '?'}, RPE ${e.rpe || '?'}, notas: "${e.notas}", fuente ${e.fuente}.
-Sesión planificada ese día: ${planHoy ? `${planHoy.sesion} — ${planHoy.detalle}` : 'ninguna'}.
+${(() => { const sr = seriesDe(e); return sr.reps.length ? `SERIES REALES (detectadas en Strava segundo a segundo, SIN los descansos): ${sr.reps.map((r, i) => `S${i + 1} ${Math.round(r.km * 1000)} m a ${r.ritmo}/km${r.fc ? ` (${r.fc} ppm)` : ''}`).join('; ')}${sr.descansos.length ? `; descansos de ~${segTxt(sr.descansos.reduce((a, b) => a + b, 0) / sr.descansos.length)}` : ''}. Valora el ritmo de las series con ESTOS datos, no con el ritmo medio total (que incluye calentamiento y descansos).\n` : ''; })()}Sesión planificada ese día: ${planHoy ? `${planHoy.sesion} — ${planHoy.detalle}` : 'ninguna'}.
 
 Historial 5 semanas:
 ${hist}
@@ -1772,6 +1782,15 @@ function inmersion(e, ev) {
         ${stat('corazon', 'FC media', e.fc_media && e.fc_media + ' ppm')}${stat('llama', 'esfuerzo', e.rpe && 'RPE ' + e.rpe)}
         ${stat('monte', 'desnivel', e.desnivel_m && '+' + e.desnivel_m + ' m')}
       </div>
+      ${(() => {
+        const sr = seriesDe(e);
+        if (!sr.reps.length) return '';
+        const segT = sr.reps.reduce((a, r) => a + r.seg, 0), kmT = sr.reps.reduce((a, r) => a + r.km, 0);
+        return `<section class="im-sec plan"><h4>${ic('ritmo')} Series reales · sin descansos</h4>
+          <p class="im-mot">${sr.reps.length} series · ritmo medio de serie <b>${segTxt(segT / kmT)}/km</b>${sr.descansos.length ? ` · descanso ~${segTxt(sr.descansos.reduce((a, b) => a + b, 0) / sr.descansos.length)}` : ''}</p>
+          ${sr.reps.map((r, i) => `<div class="im-item"><span class="im-day">S${i + 1}</span><span><b>${r.ritmo}/km</b><br><small>${Math.round(r.km * 1000)} m en ${segTxt(r.seg)}${r.fc ? ` · ${r.fc} ppm` : ''}</small></span></div>`).join('')}
+        </section>`;
+      })()}
       ${faltanHTML(e)}
       ${a ? `
         <div class="im-val ${vc}">${ic({ ok: 'trofeo', mid: 'regular', bad: 'llave' }[vc])}<b>${esc(tituloAn(a))}</b></div>
@@ -2596,73 +2615,83 @@ const haceCuanto = t => { const m = Math.round((Date.now() - t) / 6e4); return m
 const vibrar = (ms = 10) => { try { navigator.vibrate?.(ms); } catch { /* sin vibración */ } };
 
 // ---------- Varias actividades el mismo día ----------
-// 1) Si dos se parecen mucho (distancia y duración ±15 %), se pregunta cuál es la medición correcta (encuesta en el centro).
-// 2) Si quedan varias distintas, se unifican en un solo entrenamiento: km y tiempo totales, ritmo medio real y parciales.
-const noDup = (() => { try { return new Set(JSON.parse(localStorage.getItem('noDup') || '[]')); } catch { return new Set(); } })();
-const guardarNoDup = () => { try { localStorage.setItem('noDup', JSON.stringify([...noDup].slice(-100))); } catch { /* sin almacenamiento */ } };
-const parecidas = (a, b) => {
-  const ka = num(a.distancia_km), kb = num(b.distancia_km), ma = num(a.duracion_min), mb = num(b.duracion_min);
-  return Math.abs(ka - kb) <= 0.15 * Math.max(ka, kb, 0.1) && Math.abs(ma - mb) <= 0.15 * Math.max(ma, mb, 0.1);
-};
-const parClave = (a, b) => [refDe(a), refDe(b)].sort().join('~');
+// Si un día tiene 2 o más actividades (da igual distancia o ritmo), encuesta con TODAS: selección múltiple.
+// Las marcadas se unifican en un solo entrenamiento (medias y parciales) y es el que se analiza; las desmarcadas se descartan.
 let revisando = false;
+const aplazados = new Set();   // «Más tarde»: no se vuelve a preguntar por ese día hasta reabrir la app
 
-// Revisa los últimos 7 días. Devuelve true si ha abierto una encuesta o ha empezado a unificar.
+// Revisa los últimos 7 días. Devuelve true si ha abierto la encuesta.
 function revisarMultiples(hoy) {
   if (revisando) return true;
   const rows = csv('entrenos').rows;
   const fechas = [...new Set(rows.filter(r => r.fecha >= addDays(hoy, -7) && r.fecha <= hoy).map(r => r.fecha))].sort();
   for (const f of fechas) {
     const dia = rows.filter(r => r.fecha === f);
-    if (dia.length < 2) continue;
-    for (let i = 0; i < dia.length; i++) for (let j = i + 1; j < dia.length; j++) {
-      if (parecidas(dia[i], dia[j]) && !noDup.has(parClave(dia[i], dia[j]))) { encuestaDuplicada(dia[i], dia[j]); return true; }
-    }
-    unificarDia(f);
-    return true;
+    if (dia.length > 1 && !aplazados.has(f)) { encuestaDia(f, dia); return true; }
   }
   return false;
 }
 
-function encuestaDuplicada(a, b) {
+function encuestaDia(f, dia) {
   revisando = true;
-  const op = (e, k) => `<button class="enc-op" data-op="${k}">
+  const sel = new Set(dia.map((_, i) => i));
+  const op = (e, i) => `<button class="enc-op on" data-i="${i}">
+      <i class="enc-check">${ICO.ok}</i>
       <span class="enc-fuente">${e.fuente === 'strava' ? 'Strava' : 'Mi Fitness · manual'}</span>
       <b>${esc(e.distancia_km)}<small> km</small></b>
-      <span class="enc-datos">${esc(e.duracion_min)}' · ${esc(e.ritmo_min_km)}/km${e.fc_media ? ` · ${esc(e.fc_media)} ppm` : ''}${e.desnivel_m ? ` · D+${esc(e.desnivel_m)}` : ''}</span>
+      <span class="enc-datos">${esc(e.duracion_min)}' · ${esc(e.ritmo_min_km)}/km${e.fc_media ? ` · ${esc(e.fc_media)} ppm` : ''}</span>
       ${e.notas ? `<small class="enc-nota">${esc(e.notas)}</small>` : ''}</button>`;
   const v = document.createElement('div');
   v.className = 'enc';
   v.innerHTML = `<div class="enc-card">
-      <span class="enc-tag">${DIAS_LARGOS[dow(a.fecha)]} ${diaMes(a.fecha)}</span>
-      <h3>¿Es la misma actividad?</h3>
-      <p>Han llegado dos actividades casi iguales. Toca la medición correcta y descarto la otra.</p>
-      <div class="enc-ops">${op(a, 'a')}${op(b, 'b')}</div>
-      <button class="enc-no" data-op="no">Son distintas · conservar las dos</button>
+      <span class="enc-tag">${DIAS_LARGOS[dow(f)]} ${diaMes(f)} · ${dia.length} actividades</span>
+      <h3>¿Cuáles cuentan como tu entrenamiento?</h3>
+      <p>Marca las que forman tu sesión: se unen en un solo entrenamiento y se analiza ese. Las que desmarques se descartan.</p>
+      <div class="enc-ops ${dia.length > 2 ? 'muchas' : ''}">${dia.map(op).join('')}</div>
+      <div class="enc-resumen" id="enc-res"></div>
+      <button class="enc-ok" id="enc-ok">Unificar y analizar</button>
+      <button class="enc-no" id="enc-luego">Más tarde</button>
     </div>`;
   document.body.appendChild(v);
   requestAnimationFrame(() => v.classList.add('on'));
   navigator.vibrate?.(30);
-  v.addEventListener('click', async ev => {
-    const b0 = ev.target.closest('[data-op]'); if (!b0 || b0.disabled) return;
-    $$('[data-op]', v).forEach(x => (x.disabled = true));
-    b0.classList.add('elegida');
+  const resumen = () => {
+    const elegidas = dia.filter((_, i) => sel.has(i));
+    const km = elegidas.reduce((s, r) => s + num(r.distancia_km), 0), min = elegidas.reduce((s, r) => s + num(r.duracion_min), 0);
+    const seg = km ? Math.round((min / km) * 60) : 0;
+    $('#enc-res', v).textContent = elegidas.length ? `${elegidas.length} de ${dia.length} · ${String(Math.round(km * 100) / 100).replace('.', ',')} km en ${String(r1(min)).replace('.', ',')}' · ${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, '0')}/km` : 'Marca al menos una';
+    $('#enc-ok', v).disabled = !elegidas.length;
+    $('#enc-ok', v).textContent = elegidas.length > 1 ? `Unificar ${elegidas.length} y analizar` : 'Quedarme con esta';
+  };
+  resumen();
+  $$('[data-i]', v).forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.i;
+    sel.has(i) ? sel.delete(i) : sel.add(i);
+    b.classList.toggle('on', sel.has(i));
+    navigator.vibrate?.(10);
+    resumen();
+  }));
+  const cerrar = () => { v.classList.remove('on'); setTimeout(() => { v.remove(); revisando = false; render(); }, 300); };
+  $('#enc-luego', v).addEventListener('click', () => { aplazados.add(f); cerrar(); });
+  $('#enc-ok', v).addEventListener('click', async () => {
+    $('#enc-ok', v).disabled = true; $('#enc-ok', v).innerHTML = '<i class="spinner"></i> Guardando…';
     try {
-      if (b0.dataset.op === 'no') { noDup.add(parClave(a, b)); guardarNoDup(); }
-      else await descartarActividad(b0.dataset.op === 'a' ? b : a);
-    } catch (e) { toast(e.message); }
-    setTimeout(() => { v.classList.remove('on'); setTimeout(() => { v.remove(); revisando = false; render(); }, 300); }, 350);
+      for (const [i, e] of dia.entries()) if (!sel.has(i)) await descartarActividad(e, true);
+      if (sel.size > 1) { v.remove(); await unificarDia(f); return; }   // unificarDia libera «revisando» y repinta
+      toast(sel.size === dia.length ? 'Actividad guardada ✓' : `${dia.length - sel.size} descartada${dia.length - sel.size > 1 ? 's' : ''} ✓`);
+    } catch (err) { toast(err.message); }
+    cerrar();
   });
 }
 
 // Quita la actividad repetida y la marca como descartada en el registro de Strava (así la sincronización no la vuelve a traer).
-async function descartarActividad(e) {
+async function descartarActividad(e, silencioso) {
   await modify('entrenos', t => t.split('\n').filter(l => l !== e._raw).join('\n'), `descarta actividad repetida ${e.fecha} ${e.distancia_km} km`);
   for (const id of (e.strava_id || '').split('+').filter(Boolean)) {
-    await modify('stravaReg', t => t.split('\n').map(l => (l.split(',')[7] === id ? l.replace(/,[^,]*$/, ',descartada (repetida)') : l)).join('\n'),
+    await modify('stravaReg', t => t.split('\n').map(l => (l.split(',')[7] === id ? l.replace(/,[^,]*$/, ',descartada (no cuenta)') : l)).join('\n'),
       `strava: ${id} descartada`).catch(() => {});
   }
-  toast('Actividad repetida descartada ✓');
+  if (!silencioso) toast('Actividad descartada ✓');
 }
 
 const PRIO_TIPO = ['competicion', 'series', 'tempo', 'fartlek', 'cuestas', 'tirada', 'rodaje'];
