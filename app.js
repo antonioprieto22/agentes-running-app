@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.25.1';
+const VERSION = '2.25.2';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1867,10 +1867,7 @@ function inmersion(e, ev) {
         const trozos = (e.notas || '').replace(/^Parciales:\s*/, '').split(/\s+·\s+/);
         const pars = /^Parciales:/.test(e.notas || '') ? trozos.filter(x => /^\d[\d.]*\s*km\s/.test(x)) : [];
         const resto = (pars.length ? trozos.filter(x => !pars.includes(x)) : (e.notas || '').split(/\s+·\s+/)).filter(x => !/^Series: \d/.test(x)).join(' · ');
-        return (pars.length ? `<section class="im-sec plan"><h4>${ic('ritmo')} Parciales · ${pars.length} actividades</h4>
-            ${pars.map((p, i) => { const m = p.match(/^([\d.]+)\s*km\s+([\d.]+)'\s*a\s*(\S+)/) || [];
-              return `<div class="im-item"><span class="im-day">P${i + 1}</span><span><b>${esc((m[1] || '').replace('.', ','))} km</b><br><small>${esc((m[2] || '').replace('.', ','))}' · ${esc(m[3] || '')}/km</small></span></div>`; }).join('')}
-          </section>` : '')
+        return ''   // los parciales por actividad no se muestran: el desglose útil son las series reales
           + (resto ? `<section class="im-sec"><h4>${ic('nota')} Notas</h4><p class="im-mot">${esc(resto)}</p></section>` : '');
       })()}
       <div class="im-links">${(e.strava_id || '').includes('+') ? '<button class="im-link" id="im-separar">Revisar las actividades de este día</button>' : ''}<button class="im-link" id="im-cele">Repetir celebración</button></div>
