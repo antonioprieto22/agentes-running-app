@@ -980,3 +980,7 @@ button.hb-dia { width: 100%; font: inherit; color: inherit; text-align: left; cu
 .enc-resumen { font-size: 13px; color: #d6d6d6; font-variant-numeric: tabular-nums; min-height: 1.2em; }
 .enc-ok { padding: 15px; border-radius: 16px; font-weight: 800; font-size: 16px; color: #fff; background: linear-gradient(135deg, #ff8a3d, #fc4c02 60%, #d93a00); }
 .enc-ok:disabled { opacity: .4; }
+/* Series: ritmo de serie como dato principal + sesión completa en una línea discreta */
+.im-total { margin-top: 4px; font-size: 13px; color: #8a8a8a; padding: 6px 12px; border-radius: 99px; border: 1px solid #222; }
+.im-total b { color: #d6d6d6; font-weight: 700; }
+.logro-tot { font-size: 13px; opacity: .85; margin-top: -4px; }

@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.24.1';
+const VERSION = '2.25.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -765,6 +765,8 @@ const RUN_TABS = [['resumen', 'Resumen', ICON_GAUGE], ['sesiones', 'Sesiones', I
 let ruedaIdx = 0, ruedaN = 0;
 
 function renderRun(hoy, dir) {
+  const ent7 = csv('entrenos').rows.filter(e => e.fecha >= addDays(hoy, -7));
+  ent7.filter(e => e.strava_id && ent7.filter(x => x.fecha === e.fecha).length === 1).forEach(e => registrarSeries(e));   // solo sesiones ya únicas
   const r = runInfo(hoy), plan = planRows();
   const hechos = new Set(r.all.map(e => e.fecha));
   // La semana va arriba del todo (misma altura que en Fuerza), encima de los tres botones.
@@ -780,8 +782,11 @@ function renderRun(hoy, dir) {
       const d = new Date(e.fecha + 'T12:00:00Z'), a = analisisDe(e);
       return `<button class="session as-btn" data-ses="${r.all.length - 1 - i}">
         <div class="date"><small>${DIAS[d.getUTCDay()]}</small><b>${d.getUTCDate()}</b></div>
-        <div><b class="cap">${esc(e.tipo)} · ${esc(e.distancia_km)} km</b>
-          <div class="muted">${esc(e.ritmo_min_km)}/km · ${esc(e.duracion_min)} min${e.fc_media ? ' · ' + esc(e.fc_media) + ' ppm' : ''}</div></div>
+        ${(() => { const rs = resumenSeries(e); return rs
+          ? `<div><b class="cap">${esc(e.tipo)} · ${rs.ritmo}/km de serie</b>
+              <div class="muted">${rs.n} series · ${kmTxt(e.distancia_km)} km en total · ${esc(e.ritmo_min_km)}/km medio</div></div>`
+          : `<div><b class="cap">${esc(e.tipo)} · ${esc(e.distancia_km)} km</b>
+              <div class="muted">${esc(e.ritmo_min_km)}/km · ${esc(e.duracion_min)} min${e.fc_media ? ' · ' + esc(e.fc_media) + ' ppm' : ''}</div></div>`; })()}
         <span class="tag">${a ? valIcon(a) : e.rpe ? 'RPE ' + esc(e.rpe) : '—'}</span></button>`;
     }).join('') || '<div class="empty">Sin sesiones.</div>'}</div>`;
     $$('[data-ses]').forEach(b => b.addEventListener('click', ev => inmersion(r.all[+b.dataset.ses], ev)));
@@ -1321,7 +1326,9 @@ function logroHTML(e, a, fallo) {
   return `<button class="logro t-${t} ${a ? valClase(a) : ''}" id="logro">
     <span class="logro-tag">${ICO.medalla}Logro del día</span>
     <span class="sym big">${SIMBOLO[t]}</span>
-    <b class="logro-km"><span id="logro-km">0</span><small>km</small></b>
+    ${(() => { const rs = resumenSeries(e); return rs
+      ? `<b class="logro-km">${rs.ritmo}<small>/km de serie</small></b><span class="logro-tot">${rs.n} series · ${kmTxt(e.distancia_km)} km en total</span>`
+      : '<b class="logro-km"><span id="logro-km">0</span><small>km</small></b>'; })()}
     ${a ? `<span class="logro-val">${valIcon(a)} ${esc(tituloAn(a))}</span><span class="tap-hint">Toca para ver el análisis</span>`
     : !cfg.gemini ? `<span class="logro-val">${ICO.llave}Añade la clave de Gemini para el análisis</span>`
     : fallo ? `<span class="logro-val">${ICO.aviso}${esc(fallo)} · <u>Reintentar</u></span>`
@@ -1535,6 +1542,38 @@ function seriesDe(e) {
   return { reps: reps.length >= 2 ? reps : [], descansos: reps.length >= 2 ? descansos : [], analizada: acts.some(a => a.j.v) };
 }
 const segTxt = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+// Series de una sesión: de intervalos.json (Strava) o, si no, de la línea «Series: …» guardada en las notas.
+function seriesSesion(e) {
+  const sr = seriesDe(e);
+  if (sr.reps.length) return sr;
+  const m = (e.notas || '').match(/Series: \d+ a [\d:]+\/km \[([^\]]+)\]/);
+  if (!m) return sr;
+  const reps = m[1].split(' ').filter(Boolean).map(x => {
+    const [mm, rit] = x.split('@'), km = num(mm) / 1000, [a, b] = (rit || '0:0').split(':').map(Number);
+    return { km, seg: Math.round((a * 60 + b) * km), ritmo: rit, fc: null };
+  });
+  return { reps, descansos: [] };
+}
+// Resumen para mostrar: ritmo medio de serie (sin descansos) y nº de series.
+function resumenSeries(e) {
+  const sr = seriesSesion(e);
+  if (!sr.reps.length) return null;
+  const seg = sr.reps.reduce((a, r) => a + r.seg, 0), km = sr.reps.reduce((a, r) => a + r.km, 0);
+  return { n: sr.reps.length, ritmo: segTxt(seg / km), reps: sr.reps,
+    descanso: sr.descansos.length ? segTxt(sr.descansos.reduce((a, b) => a + b, 0) / sr.descansos.length) : '' };
+}
+const lineaSeries = rs => `Series: ${rs.n} a ${rs.ritmo}/km [${rs.reps.map(r => `${Math.round(r.km * 1000)}m@${r.ritmo}`).join(' ')}]`;
+const kmTxt = v => String(Math.round(num(v) * 100) / 100).replace('.', ',');
+// Guarda las series en las notas del entreno (una vez), para que queden en el historial y las vea el agente.
+const seriesGuardadas = new Set();
+async function registrarSeries(e) {
+  const rs = resumenSeries(e);
+  if (!rs || /Series: \d/.test(e.notas || '') || seriesGuardadas.has(e._raw)) return;
+  seriesGuardadas.add(e._raw);
+  const { header } = csv('entrenos');
+  const linea = toLine(header, { ...e, notas: limpio([e.notas, lineaSeries(rs)].filter(Boolean).join(' · ')) });
+  await modify('entrenos', t => t.split('\n').map(l => (l === e._raw ? linea : l)).join('\n'), `series registradas ${e.fecha}: ${rs.n} a ${rs.ritmo}`).catch(() => {});
+}
 
 function promptCoach(e) {
   const p = perfil(), { fecha } = ahora();
@@ -1789,11 +1828,16 @@ function inmersion(e, ev) {
   ov.innerHTML = `
     <button class="im-close" id="im-close" aria-label="Cerrar">${ICON_X}</button>
     <div class="im-content">
-      <div class="im-hero"><span class="sym big">${SIMBOLO[t]}</span>
-        <b class="im-km">${esc(e.distancia_km)}<small>km</small></b>
-        <span class="im-sub">${esc(e.tipo)} · ${DIAS_LARGOS[d.getUTCDay()]} ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span></div>
+      ${(() => { const rs = resumenSeries(e); return rs
+        ? `<div class="im-hero"><span class="sym big">${SIMBOLO[t]}</span>
+            <b class="im-km">${rs.ritmo}<small>/km de serie</small></b>
+            <span class="im-sub">${rs.n} series${rs.descanso ? ` · descanso ~${rs.descanso}` : ''} · ${DIAS_LARGOS[d.getUTCDay()]} ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span>
+            <span class="im-total">Sesión completa · <b>${kmTxt(e.distancia_km)} km</b> · <b>${esc(e.ritmo_min_km)}/km</b> de media · ${String(e.duracion_min).replace('.', ',')}'</span></div>`
+        : `<div class="im-hero"><span class="sym big">${SIMBOLO[t]}</span>
+            <b class="im-km">${esc(e.distancia_km)}<small>km</small></b>
+            <span class="im-sub">${esc(e.tipo)} · ${DIAS_LARGOS[d.getUTCDay()]} ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}</span></div>`; })()}
       <div class="im-stats">
-        ${stat('reloj', 'tiempo', e.duracion_min && e.duracion_min + "'")}${stat('ritmo', 'ritmo', e.ritmo_min_km && e.ritmo_min_km + '/km')}
+        ${resumenSeries(e) ? '' : stat('reloj', 'tiempo', e.duracion_min && e.duracion_min + "'") + stat('ritmo', 'ritmo', e.ritmo_min_km && e.ritmo_min_km + '/km')}
         ${stat('corazon', 'FC media', e.fc_media && e.fc_media + ' ppm')}${stat('llama', 'esfuerzo', e.rpe && 'RPE ' + e.rpe)}
         ${stat('monte', 'desnivel', e.desnivel_m && '+' + e.desnivel_m + ' m')}
       </div>
@@ -1822,7 +1866,7 @@ function inmersion(e, ev) {
         // Entrenamiento unificado: «Parciales: 2.2 km 15' a 6:55 · 1 km 5.3' a 5:18 · …» → una fila por parcial.
         const trozos = (e.notas || '').replace(/^Parciales:\s*/, '').split(/\s+·\s+/);
         const pars = /^Parciales:/.test(e.notas || '') ? trozos.filter(x => /^\d[\d.]*\s*km\s/.test(x)) : [];
-        const resto = pars.length ? trozos.filter(x => !pars.includes(x)).join(' · ') : e.notas;
+        const resto = (pars.length ? trozos.filter(x => !pars.includes(x)) : (e.notas || '').split(/\s+·\s+/)).filter(x => !/^Series: \d/.test(x)).join(' · ');
         return (pars.length ? `<section class="im-sec plan"><h4>${ic('ritmo')} Parciales · ${pars.length} actividades</h4>
             ${pars.map((p, i) => { const m = p.match(/^([\d.]+)\s*km\s+([\d.]+)'\s*a\s*(\S+)/) || [];
               return `<div class="im-item"><span class="im-day">P${i + 1}</span><span><b>${esc((m[1] || '').replace('.', ','))} km</b><br><small>${esc((m[2] || '').replace('.', ','))}' · ${esc(m[3] || '')}/km</small></span></div>`; }).join('')}
@@ -2723,7 +2767,7 @@ async function unificarDia(f) {
       const ponderada = k => { const rs = dia.filter(r => num(r[k])), m = suma(rs, 'duracion_min'); return m ? Math.round(rs.reduce((acc, r) => acc + num(r[k]) * num(r.duracion_min), 0) / m) : ''; };
       const fc = ponderada('fc_media'), rpe = ponderada('rpe'), seg = Math.round((min / km) * 60);
       const parciales = dia.map(r => `${r1(num(r.distancia_km))} km ${r1(num(r.duracion_min))}' a ${r.ritmo_min_km}`).join(' · ');
-      const otras = [...new Set(dia.map(r => r.notas).filter(n => n && !/^Parciales/.test(n)))];
+      const otras = [...new Set(dia.flatMap(r => (r.notas || '').split(/\s+·\s+/)).filter(n => n && !/^Parciales|^Series: \d|^\d[\d.]*\s*km\s/.test(n)))];
       const fila = {
         fecha: f, tipo: PRIO_TIPO.find(p => dia.some(r => norm(r.tipo) === p)) || dia[0].tipo,
         distancia_km: km, duracion_min: min, ritmo_min_km: `${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, '0')}`,
@@ -2844,9 +2888,13 @@ function celebrarRun(e, alFin) {
     clase: `vic-run vic-${modo}`, alFin, duracion: modo === 'z2' ? 2200 : 1800, destino: '#logro',
     escena: (modo === 'z2' ? `<i class="vic-pulso"></i>${ecg}` : rayas(modo === 'rapido' ? 28 : 14)) + grito(modo === 'z2' ? 'ZONA 2' : modo === 'rapido' ? '¡A TOPE!' : '¡SESIÓN HECHA!'),
     tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">Logro del día · ${esc(e.tipo)}</span>
-      <b class="vic-big vic-pieza" style="--i:1"><span data-contar="${num(e.distancia_km)}" data-dec="2">0</span><small>km</small></b>
-      <span class="vic-sub vic-pieza" style="--i:2">${DIAS_LARGOS[dow(e.fecha)]} ${diaMes(e.fecha)}</span>
-      <div class="vic-stats">${piezas([['Tiempo', `${esc(e.duracion_min)}'`], ['Ritmo', `${esc(e.ritmo_min_km)}/km`], e.fc_media && ['FC media', `${esc(e.fc_media)} ppm`], e.rpe && ['Esfuerzo', `RPE ${esc(e.rpe)}`]])}</div>`,
+      ${(() => { const rs = resumenSeries(e); return rs
+        ? `<b class="vic-big vic-pieza" style="--i:1">${rs.ritmo}<small>/km de serie</small></b>
+           <span class="vic-sub vic-pieza" style="--i:2">${rs.n} series${rs.descanso ? ` · descanso ~${rs.descanso}` : ''}</span>
+           <div class="vic-stats">${piezas([['Total', `${kmTxt(e.distancia_km)} km`], ['Ritmo medio', `${esc(e.ritmo_min_km)}/km`], e.fc_media && ['FC media', `${esc(e.fc_media)} ppm`], e.rpe && ['Esfuerzo', `RPE ${esc(e.rpe)}`]])}</div>`
+        : `<b class="vic-big vic-pieza" style="--i:1"><span data-contar="${num(e.distancia_km)}" data-dec="2">0</span><small>km</small></b>
+           <span class="vic-sub vic-pieza" style="--i:2">${DIAS_LARGOS[dow(e.fecha)]} ${diaMes(e.fecha)}</span>
+           <div class="vic-stats">${piezas([['Tiempo', `${esc(e.duracion_min)}'`], ['Ritmo', `${esc(e.ritmo_min_km)}/km`], e.fc_media && ['FC media', `${esc(e.fc_media)} ppm`], e.rpe && ['Esfuerzo', `RPE ${esc(e.rpe)}`]])}</div>`; })()}`,
   });
 }
 
