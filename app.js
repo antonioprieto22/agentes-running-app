@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.22.0';
+const VERSION = '2.23.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1650,6 +1650,105 @@ function abrirProximas(tarjetasHTML, n, ev, inicio = 0) {
   ov.onwheel = e => { if (Date.now() < bloqueo) return; e.preventDefault(); bloqueo = Date.now() + 350; girarRueda(e.deltaY > 0 ? 1 : -1); };
 }
 
+// ---------- Completar datos que faltan de una sesión (desde su análisis): foto, galería o manual ----------
+const faltan = e => [!num(e.fc_media) && 'FC media', !num(e.rpe) && 'esfuerzo y sensaciones'].filter(Boolean);
+const CF_ICO = {
+  cam: '<svg viewBox="0 0 24 24" class="im-ic"><path d="M3.5 8.5h3.2l1.8-2.5h7l1.8 2.5h3.2v10.5h-17z"/><circle cx="12" cy="13.5" r="3.6"/></svg>',
+  gal: '<svg viewBox="0 0 24 24" class="im-ic"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 15.5l-5-5-9.5 9"/></svg>',
+  man: '<svg viewBox="0 0 24 24" class="im-ic"><path d="M4 20h4L19.5 8.5l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+};
+function faltanHTML(e) {
+  const f = faltan(e);
+  if (!f.length) return '';
+  return `<section class="im-sec falta" id="cf">
+    <h4>${ICO.aviso} Faltan datos</h4>
+    <p class="im-mot">Falta: <b>${f.join(' · ')}</b>. Complétalo y rehago el análisis con todo.</p>
+    <div class="cf-ops">
+      <label class="cf-op" for="cf-cam">${CF_ICO.cam}<span>Foto</span><input type="file" id="cf-cam" accept="image/*" capture="environment" hidden></label>
+      <label class="cf-op" for="cf-gal">${CF_ICO.gal}<span>Galería</span><input type="file" id="cf-gal" accept="image/*" hidden></label>
+      <button class="cf-op" id="cf-man">${CF_ICO.man}<span>Manual</span></button>
+    </div>
+    <p class="im-mot cf-estado" id="cf-estado"></p>
+    <div class="cf-form" id="cf-form" hidden>
+      <div class="cf-grid">
+        <label>FC media<input id="cf-fc" type="number" inputmode="numeric" value="${esc(e.fc_media || '')}" placeholder="145"></label>
+        <label>FC máx.<input id="cf-fcmax" type="number" inputmode="numeric" placeholder="168"></label>
+        <label>Distancia (km)<input id="cf-km" type="number" inputmode="decimal" step="0.01" value="${esc(e.distancia_km)}"></label>
+        <label>Tiempo (min)<input id="cf-min" type="number" inputmode="decimal" step="0.1" value="${esc(e.duracion_min)}"></label>
+        <label>Desnivel (m)<input id="cf-des" type="number" inputmode="numeric" value="${esc(e.desnivel_m || '')}"></label>
+        <label>Cadencia<input id="cf-cad" type="number" inputmode="numeric" placeholder="165"></label>
+      </div>
+      <span class="cf-lbl">Esfuerzo percibido (RPE)</span>
+      <div class="cf-rpe">${Array.from({ length: 10 }, (_, i) => `<button data-rpe="${i + 1}" class="${num(e.rpe) === i + 1 ? 'on' : ''}">${i + 1}</button>`).join('')}</div>
+      <label>Sensaciones<input id="cf-sens" placeholder="p. ej. piernas frescas, rodillas bien"></label>
+      <button class="im-btn" id="cf-ok">Guardar y reanalizar</button>
+    </div>
+  </section>`;
+}
+function bindFaltan(e) {
+  const box = $('#cf');
+  if (!box) return;
+  let rpe = num(e.rpe) || 0, extraFoto = '';
+  const abrir = () => { $('#cf-form').hidden = false; };
+  $('#cf-man').addEventListener('click', abrir);
+  $$('[data-rpe]', box).forEach(b => b.addEventListener('click', () => { rpe = +b.dataset.rpe; $$('[data-rpe]', box).forEach(x => x.classList.toggle('on', x === b)); }));
+  const leer = async file => {
+    abrir();
+    $('#cf-estado').innerHTML = '<i class="spinner"></i> Leyendo la captura…';
+    try {
+      const x = await geminiJSON(`Extrae los datos de esta captura de una app o reloj de running (Mi Fitness, Strava, Xiaomi…).
+Responde SOLO JSON: {"distancia_km":null,"duracion_min":null,"fc_media":null,"fc_max":null,"cadencia":null,"desnivel_m":null,"extra":"parciales u otros datos útiles, breve"}
+duracion_min en minutos decimales (tiempo en movimiento si aparece). Usa null si un dato no aparece.`, await fotoBase64(file));
+      const poner = (id, v, dec) => { if (v != null && num(v)) $(id).value = dec ? r1(num(v)) : Math.round(num(v)); };
+      poner('#cf-fc', x.fc_media); poner('#cf-fcmax', x.fc_max); poner('#cf-cad', x.cadencia); poner('#cf-des', x.desnivel_m);
+      if (num(x.distancia_km)) $('#cf-km').value = Math.round(num(x.distancia_km) * 100) / 100;
+      poner('#cf-min', x.duracion_min, true);
+      extraFoto = limpio(x.extra || '');
+      $('#cf-estado').textContent = '✓ Datos leídos. Revísalos, marca tu esfuerzo y guarda.';
+    } catch (err) { $('#cf-estado').textContent = err.message; }
+  };
+  ['#cf-cam', '#cf-gal'].forEach(s => $(s).addEventListener('change', ev => ev.target.files[0] && leer(ev.target.files[0])));
+  $('#cf-ok').addEventListener('click', async () => {
+    const b = $('#cf-ok');
+    const km = num($('#cf-km').value) || num(e.distancia_km), min = num($('#cf-min').value) || num(e.duracion_min);
+    if (!km || !min) return toast('Indica distancia y tiempo');
+    b.disabled = true; b.innerHTML = '<i class="spinner"></i> Guardando…';
+    const seg = Math.round((min / km) * 60);
+    const extras = [$('#cf-fcmax').value && `FC máx ${Math.round(num($('#cf-fcmax').value))}`, $('#cf-cad').value && `cadencia ${Math.round(num($('#cf-cad').value))}`,
+      limpio($('#cf-sens').value), extraFoto].filter(Boolean);
+    const { header } = csv('entrenos');
+    const nuevo = { ...e,
+      distancia_km: Math.round(km * 100) / 100, duracion_min: r1(min), ritmo_min_km: `${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, '0')}`,
+      fc_media: Math.round(num($('#cf-fc').value)) || e.fc_media, desnivel_m: Math.round(num($('#cf-des').value)) || e.desnivel_m,
+      rpe: rpe || e.rpe, carga: (rpe || num(e.rpe)) ? Math.round((rpe || num(e.rpe)) * min) : e.carga,
+      notas: limpio([e.notas, ...extras].filter(Boolean).join(' · ')) };
+    delete nuevo._raw;
+    const linea = toLine(header, nuevo);
+    try {
+      await modify('entrenos', t => t.split('\n').map(l => (l === e._raw ? linea : l)).join('\n'), `completa datos ${e.fecha} ${nuevo.distancia_km} km`);
+      await borrarAnalisis(e);
+      const guardado = csv('entrenos').rows.find(r => r._raw === linea) || { ...nuevo, _raw: linea };
+      if (cfg.gemini) { b.innerHTML = '<i class="spinner"></i> Reanalizando con los datos nuevos…'; await analizarSesion(guardado).catch(err => toast(err.message)); }
+      toast('Datos completados ✓');
+      render();
+      inmersion(guardado);
+    } catch (err) { toast(err.message); b.disabled = false; b.textContent = 'Guardar y reanalizar'; }
+  });
+}
+// Quita el análisis anterior de una sesión (para rehacerlo con datos nuevos).
+async function borrarAnalisis(e) {
+  const marca = `<!-- ref:${refDe(e)} -->`;
+  if (!(D.analisis?.text || '').includes(marca)) return;
+  await modify('analisis', t => {
+    const L = t.split('\n'), i = L.findIndex(l => l.startsWith('## ') && l.includes(marca));
+    if (i < 0) return t;
+    let j = i + 1;
+    while (j < L.length && !L[j].startsWith('## ')) j++;
+    L.splice(i, j - i);
+    return L.join('\n');
+  }, `análisis ${e.fecha}: se rehace con datos completos`);
+}
+
 function inmersion(e, ev) {
   const ov = $('#inmersion'), a = analisisDe(e), t = tipoSesion(`${e.tipo} ${e.notas}`);
   const x = ev?.clientX ?? innerWidth / 2, y = ev?.clientY ?? innerHeight / 3;
@@ -1673,6 +1772,7 @@ function inmersion(e, ev) {
         ${stat('corazon', 'FC media', e.fc_media && e.fc_media + ' ppm')}${stat('llama', 'esfuerzo', e.rpe && 'RPE ' + e.rpe)}
         ${stat('monte', 'desnivel', e.desnivel_m && '+' + e.desnivel_m + ' m')}
       </div>
+      ${faltanHTML(e)}
       ${a ? `
         <div class="im-val ${vc}">${ic({ ok: 'trofeo', mid: 'regular', bad: 'llave' }[vc])}<b>${esc(tituloAn(a))}</b></div>
         ${pos.length ? `<section class="im-sec ok"><h4>${ic('check')} Lo que has hecho bien</h4>${pos.map(p => `<div class="im-item">${ic('check')}<span>${esc(p)}</span></div>`).join('')}</section>` : ''}
@@ -1705,6 +1805,7 @@ function inmersion(e, ev) {
     setTimeout(() => { ov.hidden = true; document.body.classList.remove('inmerso'); }, 560);
   };
   $('#im-close').addEventListener('click', cerrar);
+  bindFaltan(e);
   $('#im-apply')?.addEventListener('click', async () => {
     const b = $('#im-apply'); b.disabled = true; b.textContent = 'Aplicando…';
     try { await aplicarAjuste(e, a); toast('Plan actualizado ✓'); cerrar(); render(); }

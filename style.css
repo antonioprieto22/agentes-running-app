@@ -946,3 +946,25 @@ button.hb-dia { width: 100%; font: inherit; color: inherit; text-align: left; cu
 .enc-no { padding: 13px; border-radius: 16px; font-weight: 700; color: #d6d6d6; background: transparent; border: 1px dashed #3a3a3e; }
 .enc-no.elegida { border-style: solid; border-color: #fff; color: #fff; }
 .enc [disabled] { pointer-events: none; }
+
+/* =====================================================================
+   Análisis: completar datos que faltan (foto / galería / manual)
+   ===================================================================== */
+.im-sec.falta { padding: 14px; border-radius: 18px; background: linear-gradient(160deg, rgba(234,179,8,.12), #0d0d0d 60%); border: 1px solid rgba(234,179,8,.4); }
+.im-sec.falta h4 { color: #fbbf24; }
+.im-sec.falta h4 .li { color: #fbbf24; }
+.im-sec.falta .im-mot b { color: #fff; }
+.cf-ops { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cf-op { display: grid; justify-items: center; gap: 6px; padding: 14px 6px; border-radius: 16px; background: #161618; border: 1px solid #2a2a2e; color: #fff;
+  font-size: 13px; font-weight: 700; cursor: pointer; transition: transform .15s, border-color .2s; }
+.cf-op:active { transform: scale(.95); }
+.cf-op .im-ic { width: 26px; height: 26px; color: var(--im); }
+.cf-estado:empty { display: none; }
+.cf-form { display: grid; gap: 10px; margin-top: 4px; animation: imIn .4s cubic-bezier(.22,1,.36,1) both; opacity: 0; transform: translateY(10px); }
+.cf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cf-form label { color: #9a9a9a; font-size: 12px; }
+.cf-form input { background: #000; color: #fff; border-color: #2e2e32; }
+.cf-lbl { font-size: 12px; color: #9a9a9a; }
+.cf-rpe { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.cf-rpe button { padding: 10px 0; border-radius: 10px; background: #161618; border: 1px solid #2a2a2e; color: #d6d6d6; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cf-rpe button.on { background: var(--im); border-color: var(--im); color: #000; }
