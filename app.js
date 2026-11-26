@@ -1515,9 +1515,24 @@ async function analizarAuto(e) {
 function seriesDe(e) {
   let J = {};
   try { J = JSON.parse(D.intervalos?.text || '{}'); } catch { J = {}; }
-  const datos = (e.strava_id || '').split('+').map(id => J[id]).filter(Boolean);
-  const reps = datos.flatMap(x => x.reps || []), descansos = datos.flatMap(x => x.descansos || []);
-  return { reps, descansos, analizada: datos.length > 0, resumen: datos.map(x => x.resumen).filter(r => !/^sin/.test(r)).join(' + ') };
+  const reg = new Map(csv('stravaReg').rows.map(r => [r.strava_id, r]));
+  // Actividades de la sesión en orden cronológico (los ids de Strava crecen con el tiempo).
+  const ids = (e.strava_id || '').split('+').filter(Boolean).sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
+  const acts = ids.map(id => {
+    const j = J[id] || {}, r = reg.get(id) || {};
+    const km = num(j.km) || num(r.distancia_km), seg = num(j.seg) || num(r.duracion_min) * 60;
+    return { id, j, km, seg, ritmoS: km ? seg / km : 0, fc: num(r.fc_media) || null };
+  }).filter(a => a.km);
+  // En una sesión unificada, una actividad corta y continua claramente más rápida que la más lenta (≥12 %) es una serie entera.
+  const lenta = Math.max(0, ...acts.map(a => a.ritmoS));
+  const reps = [], descansos = [];
+  for (const a of acts) {
+    if (a.j.reps?.length) { reps.push(...a.j.reps); descansos.push(...(a.j.descansos || [])); }
+    else if (acts.length > 1 && a.km <= 2.5 && a.ritmoS && a.ritmoS <= lenta * 0.88) {
+      reps.push({ km: a.km, seg: a.seg, ritmo: `${Math.floor(a.ritmoS / 60)}:${String(Math.round(a.ritmoS % 60)).padStart(2, '0')}`, fc: a.fc });
+    }
+  }
+  return { reps: reps.length >= 2 ? reps : [], descansos: reps.length >= 2 ? descansos : [], analizada: acts.some(a => a.j.v) };
 }
 const segTxt = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
