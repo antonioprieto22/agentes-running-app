@@ -914,3 +914,35 @@ button.hb-dia { width: 100%; font: inherit; color: inherit; text-align: left; cu
 .vic-st span { font-size: 11px; color: #8a8a8a; text-transform: uppercase; letter-spacing: .06em; }
 .vic-st b { font-size: 16px; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .vic *, .vic::after { animation-duration: .01s !important; animation-iteration-count: 1 !important; } }
+/* Texto central de cada celebración */
+.vic-centro { position: absolute; inset: 0; display: grid; place-content: center; pointer-events: none; }
+.vic-grito { font-size: clamp(32px, 11vw, 52px); font-weight: 900; font-style: italic; letter-spacing: .06em; color: var(--vt); text-align: center;
+  text-shadow: 0 0 24px var(--vc); animation: vicGrito .7s cubic-bezier(.2,1.4,.4,1) .2s both; }
+@keyframes vicGrito { from { transform: scale(2.4); opacity: 0; filter: blur(8px); } }
+
+/* =====================================================================
+   Encuesta: ¿es la misma actividad? (centro de la pantalla, botones grandes)
+   ===================================================================== */
+.enc { position: fixed; inset: 0; z-index: 96; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.78);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; transition: opacity .3s; }
+.enc.on { opacity: 1; }
+.enc-card { width: min(100%, 420px); display: grid; gap: 12px; padding: 22px 18px 18px; border-radius: 28px; text-align: center; color: #fff;
+  background: #0d0d0f; border: 1px solid rgba(252,76,2,.45); box-shadow: 0 20px 60px rgba(0,0,0,.6), 0 0 40px rgba(252,76,2,.18);
+  transform: scale(.92); transition: transform .35s cubic-bezier(.2,.9,.3,1.25); }
+.enc.on .enc-card { transform: none; }
+.enc-tag { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #ff8a3d; }
+.enc-card h3 { font-size: 24px; font-weight: 900; letter-spacing: -.02em; }
+.enc-card p { color: #a8a8a8; font-size: 14px; }
+.enc-ops { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+.enc-op { display: grid; justify-items: center; gap: 4px; padding: 16px 10px; border-radius: 20px; color: #fff; text-align: center;
+  background: #161618; border: 1.5px solid #2a2a2e; transition: transform .15s, border-color .2s, background .2s; }
+.enc-op:active { transform: scale(.96); }
+.enc-op b { font-size: 30px; font-weight: 900; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.enc-op b small { font-size: 13px; font-weight: 600; color: #9a9a9a; letter-spacing: 0; }
+.enc-fuente { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #ff8a3d; }
+.enc-datos { font-size: 13px; color: #d6d6d6; font-variant-numeric: tabular-nums; }
+.enc-nota { font-size: 11px; color: #8a8a8a; }
+.enc-op.elegida { border-color: #fc4c02; background: linear-gradient(160deg, rgba(252,76,2,.28), #161618); transform: scale(1.03); }
+.enc-no { padding: 13px; border-radius: 16px; font-weight: 700; color: #d6d6d6; background: transparent; border: 1px dashed #3a3a3e; }
+.enc-no.elegida { border-style: solid; border-color: #fff; color: #fff; }
+.enc [disabled] { pointer-events: none; }

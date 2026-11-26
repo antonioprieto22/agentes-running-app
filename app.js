@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.21.0';
+const VERSION = '2.22.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1504,6 +1504,8 @@ const fallidos = new Map();   // ref → motivo (no se reintenta solo hasta que 
 async function analizarAuto(e) {
   const ref = refDe(e);
   if (enCurso.has(ref)) return;
+  // Si ese día hay varias actividades, se espera a resolver repetidas / unificarlas (no se analizan los trozos).
+  if (csv('entrenos').rows.filter(r => r.fecha === e.fecha).length > 1) return;
   enCurso.add(ref);
   try { await analizarSesion(e); }
   catch (err) { fallidos.set(ref, err.message); }
@@ -1682,7 +1684,17 @@ function inmersion(e, ev) {
           : '<p class="im-mot">El plan sigue igual: no hace falta ajustar nada.</p>'}
         </section>`
       : `<button class="im-btn" id="im-go">${cfg.gemini ? 'Analizar este entreno' : 'Añade la clave de Gemini en Ajustes'}</button>`}
-      ${e.notas ? `<section class="im-sec"><h4>${ic('nota')} Notas</h4><p class="im-mot">${esc(e.notas)}</p></section>` : ''}
+      ${(() => {
+        // Entrenamiento unificado: «Parciales: 2.2 km 15' a 6:55 · 1 km 5.3' a 5:18 · …» → una fila por parcial.
+        const trozos = (e.notas || '').replace(/^Parciales:\s*/, '').split(/\s+·\s+/);
+        const pars = /^Parciales:/.test(e.notas || '') ? trozos.filter(x => /^\d[\d.]*\s*km\s/.test(x)) : [];
+        const resto = pars.length ? trozos.filter(x => !pars.includes(x)).join(' · ') : e.notas;
+        return (pars.length ? `<section class="im-sec plan"><h4>${ic('ritmo')} Parciales · ${pars.length} actividades</h4>
+            ${pars.map((p, i) => { const m = p.match(/^([\d.]+)\s*km\s+([\d.]+)'\s*a\s*(\S+)/) || [];
+              return `<div class="im-item"><span class="im-day">P${i + 1}</span><span><b>${esc((m[1] || '').replace('.', ','))} km</b><br><small>${esc((m[2] || '').replace('.', ','))}' · ${esc(m[3] || '')}/km</small></span></div>`; }).join('')}
+          </section>` : '')
+          + (resto ? `<section class="im-sec"><h4>${ic('nota')} Notas</h4><p class="im-mot">${esc(resto)}</p></section>` : '');
+      })()}
     </div>`;
   ov.hidden = false;
   document.body.classList.add('inmerso');
@@ -2482,6 +2494,109 @@ const haceCuanto = t => { const m = Math.round((Date.now() - t) / 6e4); return m
 // Vibración breve (Android): sensación de app nativa. iOS la ignora.
 const vibrar = (ms = 10) => { try { navigator.vibrate?.(ms); } catch { /* sin vibración */ } };
 
+// ---------- Varias actividades el mismo día ----------
+// 1) Si dos se parecen mucho (distancia y duración ±15 %), se pregunta cuál es la medición correcta (encuesta en el centro).
+// 2) Si quedan varias distintas, se unifican en un solo entrenamiento: km y tiempo totales, ritmo medio real y parciales.
+const noDup = (() => { try { return new Set(JSON.parse(localStorage.getItem('noDup') || '[]')); } catch { return new Set(); } })();
+const guardarNoDup = () => { try { localStorage.setItem('noDup', JSON.stringify([...noDup].slice(-100))); } catch { /* sin almacenamiento */ } };
+const parecidas = (a, b) => {
+  const ka = num(a.distancia_km), kb = num(b.distancia_km), ma = num(a.duracion_min), mb = num(b.duracion_min);
+  return Math.abs(ka - kb) <= 0.15 * Math.max(ka, kb, 0.1) && Math.abs(ma - mb) <= 0.15 * Math.max(ma, mb, 0.1);
+};
+const parClave = (a, b) => [refDe(a), refDe(b)].sort().join('~');
+let revisando = false;
+
+// Revisa los últimos 7 días. Devuelve true si ha abierto una encuesta o ha empezado a unificar.
+function revisarMultiples(hoy) {
+  if (revisando) return true;
+  const rows = csv('entrenos').rows;
+  const fechas = [...new Set(rows.filter(r => r.fecha >= addDays(hoy, -7) && r.fecha <= hoy).map(r => r.fecha))].sort();
+  for (const f of fechas) {
+    const dia = rows.filter(r => r.fecha === f);
+    if (dia.length < 2) continue;
+    for (let i = 0; i < dia.length; i++) for (let j = i + 1; j < dia.length; j++) {
+      if (parecidas(dia[i], dia[j]) && !noDup.has(parClave(dia[i], dia[j]))) { encuestaDuplicada(dia[i], dia[j]); return true; }
+    }
+    unificarDia(f);
+    return true;
+  }
+  return false;
+}
+
+function encuestaDuplicada(a, b) {
+  revisando = true;
+  const op = (e, k) => `<button class="enc-op" data-op="${k}">
+      <span class="enc-fuente">${e.fuente === 'strava' ? 'Strava' : 'Mi Fitness · manual'}</span>
+      <b>${esc(e.distancia_km)}<small> km</small></b>
+      <span class="enc-datos">${esc(e.duracion_min)}' · ${esc(e.ritmo_min_km)}/km${e.fc_media ? ` · ${esc(e.fc_media)} ppm` : ''}${e.desnivel_m ? ` · D+${esc(e.desnivel_m)}` : ''}</span>
+      ${e.notas ? `<small class="enc-nota">${esc(e.notas)}</small>` : ''}</button>`;
+  const v = document.createElement('div');
+  v.className = 'enc';
+  v.innerHTML = `<div class="enc-card">
+      <span class="enc-tag">${DIAS_LARGOS[dow(a.fecha)]} ${diaMes(a.fecha)}</span>
+      <h3>¿Es la misma actividad?</h3>
+      <p>Han llegado dos actividades casi iguales. Toca la medición correcta y descarto la otra.</p>
+      <div class="enc-ops">${op(a, 'a')}${op(b, 'b')}</div>
+      <button class="enc-no" data-op="no">Son distintas · conservar las dos</button>
+    </div>`;
+  document.body.appendChild(v);
+  requestAnimationFrame(() => v.classList.add('on'));
+  navigator.vibrate?.(30);
+  v.addEventListener('click', async ev => {
+    const b0 = ev.target.closest('[data-op]'); if (!b0 || b0.disabled) return;
+    $$('[data-op]', v).forEach(x => (x.disabled = true));
+    b0.classList.add('elegida');
+    try {
+      if (b0.dataset.op === 'no') { noDup.add(parClave(a, b)); guardarNoDup(); }
+      else await descartarActividad(b0.dataset.op === 'a' ? b : a);
+    } catch (e) { toast(e.message); }
+    setTimeout(() => { v.classList.remove('on'); setTimeout(() => { v.remove(); revisando = false; render(); }, 300); }, 350);
+  });
+}
+
+// Quita la actividad repetida y la marca como descartada en el registro de Strava (así la sincronización no la vuelve a traer).
+async function descartarActividad(e) {
+  await modify('entrenos', t => t.split('\n').filter(l => l !== e._raw).join('\n'), `descarta actividad repetida ${e.fecha} ${e.distancia_km} km`);
+  for (const id of (e.strava_id || '').split('+').filter(Boolean)) {
+    await modify('stravaReg', t => t.split('\n').map(l => (l.split(',')[7] === id ? l.replace(/,[^,]*$/, ',descartada (repetida)') : l)).join('\n'),
+      `strava: ${id} descartada`).catch(() => {});
+  }
+  toast('Actividad repetida descartada ✓');
+}
+
+const PRIO_TIPO = ['competicion', 'series', 'tempo', 'fartlek', 'cuestas', 'tirada', 'rodaje'];
+async function unificarDia(f) {
+  revisando = true;
+  let resumen = null;
+  try {
+    await modify('entrenos', t => {
+      const { header, rows } = parseCsv(t);
+      const dia = rows.filter(r => r.fecha === f);
+      if (dia.length < 2) return t;                       // otro dispositivo ya lo unificó
+      const suma = (rs, k) => rs.reduce((acc, r) => acc + num(r[k]), 0);
+      const km = Math.round(suma(dia, 'distancia_km') * 100) / 100, min = r1(suma(dia, 'duracion_min'));
+      const ponderada = k => { const rs = dia.filter(r => num(r[k])), m = suma(rs, 'duracion_min'); return m ? Math.round(rs.reduce((acc, r) => acc + num(r[k]) * num(r.duracion_min), 0) / m) : ''; };
+      const fc = ponderada('fc_media'), rpe = ponderada('rpe'), seg = Math.round((min / km) * 60);
+      const parciales = dia.map(r => `${r1(num(r.distancia_km))} km ${r1(num(r.duracion_min))}' a ${r.ritmo_min_km}`).join(' · ');
+      const otras = [...new Set(dia.map(r => r.notas).filter(n => n && !/^Parciales/.test(n)))];
+      const fila = {
+        fecha: f, tipo: PRIO_TIPO.find(p => dia.some(r => norm(r.tipo) === p)) || dia[0].tipo,
+        distancia_km: km, duracion_min: min, ritmo_min_km: `${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, '0')}`,
+        desnivel_m: suma(dia, 'desnivel_m') || '', fc_media: fc, rpe, carga: rpe ? Math.round(rpe * min) : '',
+        notas: limpio([`Parciales: ${parciales}`, ...otras].join(' · ')),
+        fuente: dia.every(r => r.fuente === 'strava') ? 'strava' : 'manual',
+        strava_id: dia.map(r => r.strava_id).filter(Boolean).join('+'),
+      };
+      resumen = { n: dia.length, km, min };
+      const fuera = new Set(dia.map(r => r._raw));
+      return t.split('\n').filter(l => !fuera.has(l)).join('\n').replace(/\n*$/, '\n') + toLine(header, fila) + '\n';
+    }, `unifica ${f}: varias actividades en un entrenamiento`);
+    if (resumen) toast(`${resumen.n} actividades unificadas · ${String(resumen.km).replace('.', ',')} km en ${String(resumen.min).replace('.', ',')}'`);
+  } catch (e) { toast(e.message); }
+  revisando = false;
+  render();
+}
+
 // ---------- Celebración de logros (animación de fondo tipo videojuego + tarjeta que se monta y se desliza a su sitio) ----------
 // Cada logro se celebra una sola vez por dispositivo (lista en localStorage). Versión 2: se reinician para volver a verlas.
 const celebrados = (() => {
@@ -2499,8 +2614,9 @@ const refNutri = f => 'n:' + f, refRun = e => 'r:' + refDe(e), refFz = s => `f:$
 
 // Tras pintar, celebra el logro de hoy pendiente. Una carrera nueva (p. ej. recién llegada de Strava) lleva a Running.
 function celebrarPendientes(hoy) {
-  const ocupado = celebrando || $('#splash') || !$('#inmersion').hidden || !$('#sheet').hidden || ($('#hist') && !$('#hist').hidden);
+  const ocupado = celebrando || revisando || $('#splash') || !$('#inmersion').hidden || !$('#sheet').hidden || ($('#hist') && !$('#hist').hidden);
   if (ocupado) return;
+  if (revisarMultiples(hoy)) return;   // primero, días con varias actividades (repetidas → encuesta; distintas → se unifican)
   if (seccion === 'nutri' && nutriDia(hoy).gasto != null && !celebrados.has(refNutri(hoy))) return celebrarNutri(hoy);
   const e = csv('entrenos').rows.filter(x => x.fecha === hoy).at(-1);
   if (e && !celebrados.has(refRun(e))) {
@@ -2511,6 +2627,7 @@ function celebrarPendientes(hoy) {
   if (seccion === 'fuerza') { const s = csv('fuerza').rows.filter(x => x.fecha === hoy).at(-1); if (s && !celebrados.has(refFz(s))) return celebrarFuerza(s); }
 }
 
+const grito = t => `<div class="vic-centro"><b class="vic-grito">${t}</b></div>`;
 const VIC_FLECHA = '<svg viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg>';
 const reducido = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const piezas = filas => filas.filter(Boolean).map(([k, v], i) => `<div class="vic-st vic-pieza" style="--i:${i + 3}"><span>${k}</span><b>${v}</b></div>`).join('');
@@ -2562,7 +2679,7 @@ function celebrarNutri(f, alFin) {
   const n = nutriDia(f), bal = Math.round(n.t.kcal - n.gasto), def = bal < 0, dir = def ? 'baja' : 'sube';
   const flechas = Array.from({ length: 22 }, (_, i) => `<i class="vic-fl ${dir}" style="--x:${(i * 37) % 96}%;--d:${(i * 0.07).toFixed(2)}s;--s:${(0.5 + (i % 5) * 0.22).toFixed(2)}">${VIC_FLECHA}</i>`).join('');
   victoria({
-    clase: def ? 'vic-def' : 'vic-sup', alFin, escena: flechas,
+    clase: def ? 'vic-def' : 'vic-sup', alFin, escena: flechas + grito(def ? 'DÉFICIT' : 'SUPERÁVIT'),
     destino: () => (f === ahora().fecha ? $('#bal-flip') || $('.balance') : document.querySelector(`.hb-dia[data-f="${f}"]`)),
     tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">${f === ahora().fecha ? 'Día cerrado' : `${DIAS[dow(f)]} ${diaMes(f)} cerrado`}</span>
       <b class="vic-big vic-pieza" style="--i:1"><span data-contar="${Math.abs(bal)}" data-pre="${def ? '−' : '+'}">0</span><small>kcal</small></b>
@@ -2580,7 +2697,7 @@ function celebrarRun(e, alFin) {
   const ecg = Array.from({ length: 4 }, (_, i) => `<svg class="vic-ecg" style="--y:${14 + i * 23}%;--d:${(i * 0.35).toFixed(2)}s" viewBox="0 0 400 40" preserveAspectRatio="none"><path d="M0 20h120l10-14 12 28 10-22 8 8h70l10-14 12 28 10-22 8 8h120"/></svg>`).join('');
   victoria({
     clase: `vic-run vic-${modo}`, alFin, duracion: modo === 'z2' ? 2200 : 1800, destino: '#logro',
-    escena: modo === 'z2' ? `<i class="vic-pulso"></i>${ecg}` : rayas(modo === 'rapido' ? 28 : 14),
+    escena: (modo === 'z2' ? `<i class="vic-pulso"></i>${ecg}` : rayas(modo === 'rapido' ? 28 : 14)) + grito(modo === 'z2' ? 'ZONA 2' : modo === 'rapido' ? '¡A TOPE!' : '¡SESIÓN HECHA!'),
     tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">Logro del día · ${esc(e.tipo)}</span>
       <b class="vic-big vic-pieza" style="--i:1"><span data-contar="${num(e.distancia_km)}" data-dec="2">0</span><small>km</small></b>
       <span class="vic-sub vic-pieza" style="--i:2">${DIAS_LARGOS[dow(e.fecha)]} ${diaMes(e.fecha)}</span>
@@ -2595,7 +2712,7 @@ function celebrarFuerza(s, alFin) {
     <rect x="0" y="18" width="400" height="4" rx="2" class="eje"/><rect x="18" y="4" width="16" height="32" rx="3"/><rect x="38" y="9" width="10" height="22" rx="3"/>
     <rect x="366" y="4" width="16" height="32" rx="3"/><rect x="352" y="9" width="10" height="22" rx="3"/></svg>`).join('');
   victoria({
-    clase: 'vic-fz', alFin, duracion: 2000, escena: barras, destino: '.fz-logro',
+    clase: 'vic-fz', alFin, duracion: 2000, escena: barras + grito('¡FUERZA!'), destino: '.fz-logro',
     tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">Fuerza completada</span>
       <b class="vic-big vic-pieza cap" style="--i:1;font-size:34px">${esc(s.rutina)}</b>
       <span class="vic-sub vic-pieza" style="--i:2">${DIAS_LARGOS[dow(s.fecha)]} ${diaMes(s.fecha)}</span>
