@@ -984,3 +984,5 @@ button.hb-dia { width: 100%; font: inherit; color: inherit; text-align: left; cu
 .im-total { margin-top: 4px; font-size: 13px; color: #8a8a8a; padding: 6px 12px; border-radius: 99px; border: 1px solid #222; }
 .im-total b { color: #d6d6d6; font-weight: 700; }
 .logro-tot { font-size: 13px; opacity: .85; margin-top: -4px; }
+.im-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding-top: 4px; }
+.im-link { padding: 10px 14px; border-radius: 99px; border: 1px solid #2e2e32; color: #bdbdbd; font-size: 13px; font-weight: 600; }

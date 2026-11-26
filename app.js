@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.25.0';
+const VERSION = '2.25.1';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -1873,6 +1873,7 @@ function inmersion(e, ev) {
           </section>` : '')
           + (resto ? `<section class="im-sec"><h4>${ic('nota')} Notas</h4><p class="im-mot">${esc(resto)}</p></section>` : '');
       })()}
+      <div class="im-links">${(e.strava_id || '').includes('+') ? '<button class="im-link" id="im-separar">Revisar las actividades de este día</button>' : ''}<button class="im-link" id="im-cele">Repetir celebración</button></div>
     </div>`;
   ov.hidden = false;
   document.body.classList.add('inmerso');
@@ -1884,6 +1885,12 @@ function inmersion(e, ev) {
   };
   $('#im-close').addEventListener('click', cerrar);
   bindFaltan(e);
+  $('#im-cele')?.addEventListener('click', () => { cerrar(); setTimeout(() => celebrarRun(e), 600); });
+  $('#im-separar')?.addEventListener('click', async () => {
+    const b = $('#im-separar'); b.disabled = true; b.innerHTML = '<i class="spinner"></i> Separando…';
+    try { await separarSesion(e); cerrar(); setTimeout(() => { render(); }, 600); }
+    catch (err) { toast(err.message); b.disabled = false; b.textContent = 'Revisar las actividades de este día'; }
+  });
   $('#im-apply')?.addEventListener('click', async () => {
     const b = $('#im-apply'); b.disabled = true; b.textContent = 'Aplicando…';
     try { await aplicarAjuste(e, a); toast('Plan actualizado ✓'); cerrar(); render(); }
@@ -2743,6 +2750,25 @@ function encuestaDia(f, dia) {
   });
 }
 
+async function separarSesion(e) {
+  const reg = new Map(csv('stravaReg').rows.map(r => [r.strava_id, r]));
+  const ids = (e.strava_id || '').split('+').filter(Boolean);
+  const { header } = csv('entrenos');
+  const propias = (e.notas || '').split(/\s+·\s+/).filter(x => x && !/^Parciales|^Series: \d|^\d[\d.]*\s*km\s/.test(x));
+  const partes = ids.map((id, k) => {
+    const r = reg.get(id);
+    if (!r) return null;
+    return { fecha: e.fecha, tipo: e.tipo, distancia_km: r.distancia_km, duracion_min: r.duracion_min, ritmo_min_km: r.ritmo_min_km,
+      desnivel_m: r.desnivel_m, fc_media: r.fc_media, rpe: e.rpe, carga: num(e.rpe) ? Math.round(num(e.rpe) * num(r.duracion_min)) : '',
+      notas: limpio([r.nombre, ...(k === 0 ? propias.filter(x => x !== r.nombre) : [])].filter(Boolean).join(' · ')), fuente: 'strava', strava_id: id };
+  });
+  if (!partes.length || partes.some(p => !p)) throw new Error('No encuentro las actividades originales en el registro de Strava');
+  await modify('entrenos', t => t.split('\n').filter(l => l !== e._raw).join('\n').replace(/\n*$/, '\n') + partes.map(p => toLine(header, p)).join('\n') + '\n',
+    `separa ${e.fecha} para revisar sus actividades`);
+  await borrarAnalisis(e);
+  aplazados.delete(e.fecha);
+}
+
 // Quita la actividad repetida y la marca como descartada en el registro de Strava (así la sincronización no la vuelve a traer).
 async function descartarActividad(e, silencioso) {
   await modify('entrenos', t => t.split('\n').filter(l => l !== e._raw).join('\n'), `descarta actividad repetida ${e.fecha} ${e.distancia_km} km`);
@@ -2790,7 +2816,7 @@ async function unificarDia(f) {
 // Cada logro se celebra una sola vez por dispositivo (lista en localStorage). Versión 2: se reinician para volver a verlas.
 const celebrados = (() => {
   try {
-    if (localStorage.getItem('celebradosV') !== '2') { localStorage.setItem('celebradosV', '2'); localStorage.removeItem('celebrados'); }
+    if (localStorage.getItem('celebradosV') !== '3') { localStorage.setItem('celebradosV', '3'); localStorage.removeItem('celebrados'); }
     return new Set(JSON.parse(localStorage.getItem('celebrados') || '[]'));
   } catch { return new Set(); }
 })();
@@ -2807,7 +2833,7 @@ function celebrarPendientes(hoy) {
   if (ocupado) return;
   if (revisarMultiples(hoy)) return;   // primero, días con varias actividades (repetidas → encuesta; distintas → se unifican)
   if (seccion === 'nutri' && nutriDia(hoy).gasto != null && !celebrados.has(refNutri(hoy))) return celebrarNutri(hoy);
-  const e = csv('entrenos').rows.filter(x => x.fecha === hoy).at(-1);
+  const e = csv('entrenos').rows.filter(x => x.fecha >= addDays(hoy, -1) && x.fecha <= hoy).sort((a, b) => a.fecha.localeCompare(b.fecha)).at(-1);
   if (e && !celebrados.has(refRun(e))) {
     if (seccion !== 'run') { runTab = 'resumen'; irA('run', 'left'); return; }   // el render de Running vuelve a llamar aquí
     if (runTab !== 'resumen') { irRunTab('resumen'); return; }
@@ -2983,7 +3009,7 @@ Promise.race([Promise.all([splashMin, cargaInicial.catch(() => {})]), splashMax]
     await dormir(320);
   }
   s.classList.add('fuera');
-  setTimeout(() => s.remove(), 500);
+  setTimeout(() => { s.remove(); celebrarPendientes(ahora().fecha); }, 500);
   estadoRed();
   // Reanima la rueda/contadores ahora que la pantalla es visible.
   if (seccion === 'nutri' || seccion === 'run') render();
