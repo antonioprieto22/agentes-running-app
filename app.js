@@ -1534,8 +1534,9 @@ function seriesDe(e) {
   const lenta = Math.max(0, ...acts.map(a => a.ritmoS));
   const reps = [], descansos = [];
   for (const a of acts) {
-    if (a.j.reps?.length) { reps.push(...a.j.reps); descansos.push(...(a.j.descansos || [])); }
-    else if (acts.length > 1 && a.km <= 2.5 && a.ritmoS && a.ritmoS <= lenta * 0.88) {
+    const corta = acts.length > 1 && a.km <= 1.2 && a.ritmoS && a.ritmoS <= lenta * 0.88;   // actividad corta y rápida = una serie entera
+    if (a.j.reps?.length && !corta) { reps.push(...a.j.reps); descansos.push(...(a.j.descansos || [])); }
+    else if (corta || (acts.length > 1 && a.km <= 2.5 && a.ritmoS && a.ritmoS <= lenta * 0.88)) {
       reps.push({ km: a.km, seg: a.seg, ritmo: `${Math.floor(a.ritmoS / 60)}:${String(Math.round(a.ritmoS % 60)).padStart(2, '0')}`, fc: a.fc });
     }
   }
