@@ -6,7 +6,7 @@ if (!Array.prototype.at) {
 // APEX — PWA. Lee y escribe los CSV del repo privado vía API de GitHub.
 // Fotos: Gemini (plan gratuito, clave del usuario). Códigos de barras: Open Food Facts.
 
-const VERSION = '2.20.0';
+const VERSION = '2.21.0';
 const TZ = 'Europe/Madrid';
 const FILES = {
   perfil: 'perfil.md', plan: 'running/plan.md',
@@ -207,18 +207,20 @@ let macrosAbiertos = false;
 let balDia = null;
 let balVolteado = false;    // día cerrado: se ve la rueda (true) o el balance (false)
 
-async function cargar() {
-  if (!cfg.token) { irA('ajustes'); return; }
+// silencioso: comprobación periódica en segundo plano (sin icono girando y sin repintar si nada ha cambiado).
+async function cargar(silencioso) {
+  if (!cfg.token) { if (!silencioso) irA('ajustes'); return; }
   if (colaRed.length) await vaciarCola();       // primero se suben los cambios hechos sin conexión
   if (colaRed.length) { estadoRed(); return; }   // sigue sin red: no se pisan los datos locales
-  const b = $('#btn-sync'); b.classList.add('spin');
+  const b = $('#btn-sync'); if (!silencioso) b.classList.add('spin');
   try {
     const pares = await Promise.all(Object.entries(FILES).map(async ([k, p]) =>
       [k, OPCIONALES.has(k) ? await getFile(p).catch(() => ({ text: '', sha: undefined })) : await getFile(p)]));
+    const cambio = pares.some(([k, v]) => v.text !== D[k]?.text);
     D = Object.fromEntries(pares);
     ultimaCarga = Date.now();
-    render();
-  } catch (e) { toast(e.message); if (!Object.keys(D).length) irA('ajustes'); }
+    if (!silencioso || cambio) render();
+  } catch (e) { if (!silencioso) { toast(e.message); if (!Object.keys(D).length) irA('ajustes'); } }
   finally { b.classList.remove('spin'); }
 }
 function perfil() { return memoizar('perfil', D.perfil?.text || '', leerPerfil); }
@@ -501,7 +503,7 @@ function bloqueSemana(l, hoy) {
     if (d.bal == null) return `<div class="hb-dia ${d.f === hoy ? 'hoy' : 'vacio'}"><span class="hb-ic vacio"></span>${et}<b class="hb-txt">${d.f === hoy ? `En curso · ${fmt(d.kcal)} kcal` : 'Sin datos'}</b></div>`;
     const def = d.bal < 0, gasto = d.kcal - d.bal, tope = Math.max(d.kcal, gasto, 1);
     // Al tocarla, la tarjeta muestra dos barras (ingesta y gasto) a escala para ver el balance de un vistazo.
-    return `<div class="hb-dia ${def ? 'def' : 'sup'}" data-ver role="button" style="--w:${Math.round(Math.abs(d.bal) / max * 100)}%;--d:${i * 60}ms">
+    return `<div class="hb-dia ${def ? 'def' : 'sup'}" data-ver data-f="${d.f}" role="button" style="--w:${Math.round(Math.abs(d.bal) / max * 100)}%;--d:${i * 60}ms">
       <i class="hb-fill"></i><span class="hb-ic">${def ? HB_OK : HB_KO}</span>${et}<b>${kcalTxt(d.bal)}<small> kcal</small></b>
       <span class="hb-cmp" aria-hidden="true">
         <span class="hb-cb in" style="--p:${Math.round(d.kcal / tope * 100)}%"><span>Ingesta</span><b>${fmt(d.kcal)}</b></span>
@@ -2480,9 +2482,14 @@ const haceCuanto = t => { const m = Math.round((Date.now() - t) / 6e4); return m
 // Vibración breve (Android): sensación de app nativa. iOS la ignora.
 const vibrar = (ms = 10) => { try { navigator.vibrate?.(ms); } catch { /* sin vibración */ } };
 
-// ---------- Celebración de logros (animación tipo videojuego + tarjeta final que se monta pieza a pieza) ----------
-// Cada logro se celebra una sola vez por dispositivo (lista en localStorage).
-const celebrados = (() => { try { return new Set(JSON.parse(localStorage.getItem('celebrados') || '[]')); } catch { return new Set(); } })();
+// ---------- Celebración de logros (animación de fondo tipo videojuego + tarjeta que se monta y se desliza a su sitio) ----------
+// Cada logro se celebra una sola vez por dispositivo (lista en localStorage). Versión 2: se reinician para volver a verlas.
+const celebrados = (() => {
+  try {
+    if (localStorage.getItem('celebradosV') !== '2') { localStorage.setItem('celebradosV', '2'); localStorage.removeItem('celebrados'); }
+    return new Set(JSON.parse(localStorage.getItem('celebrados') || '[]'));
+  } catch { return new Set(); }
+})();
 function marcarCelebrado(ref) {
   celebrados.add(ref);
   try { localStorage.setItem('celebrados', JSON.stringify([...celebrados].slice(-80))); } catch { /* sin almacenamiento */ }
@@ -2490,12 +2497,17 @@ function marcarCelebrado(ref) {
 let celebrando = false;
 const refNutri = f => 'n:' + f, refRun = e => 'r:' + refDe(e), refFz = s => `f:${s.fecha}|${s.rutina}`;
 
-// Tras pintar una sección, celebra su logro de hoy si aún no se había celebrado (y no hay nada abierto encima).
+// Tras pintar, celebra el logro de hoy pendiente. Una carrera nueva (p. ej. recién llegada de Strava) lleva a Running.
 function celebrarPendientes(hoy) {
   const ocupado = celebrando || $('#splash') || !$('#inmersion').hidden || !$('#sheet').hidden || ($('#hist') && !$('#hist').hidden);
   if (ocupado) return;
   if (seccion === 'nutri' && nutriDia(hoy).gasto != null && !celebrados.has(refNutri(hoy))) return celebrarNutri(hoy);
-  if (seccion === 'run') { const e = csv('entrenos').rows.filter(x => x.fecha === hoy).at(-1); if (e && !celebrados.has(refRun(e))) return celebrarRun(e); }
+  const e = csv('entrenos').rows.filter(x => x.fecha === hoy).at(-1);
+  if (e && !celebrados.has(refRun(e))) {
+    if (seccion !== 'run') { runTab = 'resumen'; irA('run', 'left'); return; }   // el render de Running vuelve a llamar aquí
+    if (runTab !== 'resumen') { irRunTab('resumen'); return; }
+    return celebrarRun(e);
+  }
   if (seccion === 'fuerza') { const s = csv('fuerza').rows.filter(x => x.fecha === hoy).at(-1); if (s && !celebrados.has(refFz(s))) return celebrarFuerza(s); }
 }
 
@@ -2503,35 +2515,55 @@ const VIC_FLECHA = '<svg viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg>';
 const reducido = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const piezas = filas => filas.filter(Boolean).map(([k, v], i) => `<div class="vic-st vic-pieza" style="--i:${i + 3}"><span>${k}</span><b>${v}</b></div>`).join('');
 
-function victoria({ clase, escena, tarjeta, duracion = 2600, alFin }) {
+// Fases: fondo (≈1,8 s) → la tarjeta se monta en el centro (≈1 s) → se desliza hasta su sitio en la app (0,55 s).
+// Tocar la pantalla en cualquier momento salta directamente al deslizamiento.
+function victoria({ clase, escena, tarjeta, destino, duracion = 1800, alFin }) {
   celebrando = true;
   const v = document.createElement('div');
   v.className = 'vic ' + clase;
-  v.innerHTML = `<div class="vic-escena">${escena}</div>
-    <div class="vic-card" hidden>${tarjeta}<button class="vic-ok vic-pieza" style="--i:9">Continuar</button></div>`;
+  v.innerHTML = `<div class="vic-escena">${escena}</div><div class="vic-card" hidden>${tarjeta}</div>`;
   document.body.appendChild(v);
+  const card = $('.vic-card', v);
   navigator.vibrate?.([40, 60, 40, 60, 160]);
   requestAnimationFrame(() => v.classList.add('on'));
-  setTimeout(() => {
-    v.classList.add('fin');
-    $('.vic-card', v).hidden = false;
-    $$('[data-contar]', v).forEach(el => contar(el, +el.dataset.contar, el.dataset.pre || '', +(el.dataset.dec || 0)));
-  }, reducido() ? 250 : duracion);
-  const cerrar = () => {
-    v.classList.add('sale');
-    setTimeout(() => { v.remove(); celebrando = false; alFin?.(); }, 350);
+  let fase = 'fondo', t1, t2;
+  const mostrarTarjeta = rapido => {
+    if (fase !== 'fondo') return;
+    fase = 'tarjeta'; clearTimeout(t1);
+    v.classList.add('fin'); if (rapido) v.classList.add('ya');
+    card.hidden = false;
+    $$('[data-contar]', v).forEach(el => (rapido ? (el.textContent = (el.dataset.pre || '') + (+el.dataset.dec ? (+el.dataset.contar).toFixed(+el.dataset.dec).replace('.', ',') : fmt(+el.dataset.contar)))
+      : contar(el, +el.dataset.contar, el.dataset.pre || '', +(el.dataset.dec || 0))));
   };
-  $('.vic-ok', v).addEventListener('click', cerrar);
+  const aterrizar = () => {
+    if (fase === 'aterriza') return;
+    mostrarTarjeta(true);
+    fase = 'aterriza'; clearTimeout(t2);
+    const objetivo = typeof destino === 'function' ? destino() : destino && document.querySelector(destino);
+    v.classList.add('aterriza');
+    if (objetivo?.getBoundingClientRect) {
+      objetivo.scrollIntoView?.({ block: 'center', behavior: 'auto' });
+      const t = objetivo.getBoundingClientRect(), c = card.getBoundingClientRect();
+      const dx = t.left + t.width / 2 - (c.left + c.width / 2), dy = t.top + t.height / 2 - (c.top + c.height / 2);
+      card.style.transform = `translate(${dx}px, ${dy}px) scale(${t.width / c.width}, ${t.height / c.height})`;
+      objetivo.classList.add('aterrizado'); setTimeout(() => objetivo.classList.remove('aterrizado'), 1200);
+    } else card.style.transform = 'scale(.6)';
+    setTimeout(() => { v.remove(); celebrando = false; alFin?.(); setTimeout(() => celebrarPendientes(ahora().fecha), 300); }, 600);
+  };
+  v.addEventListener('pointerdown', aterrizar);
+  const r = reducido();
+  t1 = setTimeout(() => mostrarTarjeta(false), r ? 200 : duracion);
+  t2 = setTimeout(aterrizar, (r ? 200 : duracion) + 1900);
 }
 
 // Nutrición: déficit → flechas que caen (bordes verdes); superávit → flechas que suben (bordes rojos).
 function celebrarNutri(f, alFin) {
   marcarCelebrado(refNutri(f));
   const n = nutriDia(f), bal = Math.round(n.t.kcal - n.gasto), def = bal < 0, dir = def ? 'baja' : 'sube';
-  const flechas = Array.from({ length: 16 }, (_, i) => `<i class="vic-fl ${dir}" style="--x:${(i * 37) % 96}%;--d:${(i * 0.09).toFixed(2)}s;--s:${(0.6 + (i % 4) * 0.25).toFixed(2)}">${VIC_FLECHA}</i>`).join('');
+  const flechas = Array.from({ length: 22 }, (_, i) => `<i class="vic-fl ${dir}" style="--x:${(i * 37) % 96}%;--d:${(i * 0.07).toFixed(2)}s;--s:${(0.5 + (i % 5) * 0.22).toFixed(2)}">${VIC_FLECHA}</i>`).join('');
   victoria({
-    clase: def ? 'vic-def' : 'vic-sup', alFin,
-    escena: `${flechas}<div class="vic-centro"><span class="vic-medidor ${dir}"><i></i></span><b class="vic-grito">${def ? 'DÉFICIT' : 'SUPERÁVIT'}</b></div>`,
+    clase: def ? 'vic-def' : 'vic-sup', alFin, escena: flechas,
+    destino: () => (f === ahora().fecha ? $('#bal-flip') || $('.balance') : document.querySelector(`.hb-dia[data-f="${f}"]`)),
     tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">${f === ahora().fecha ? 'Día cerrado' : `${DIAS[dow(f)]} ${diaMes(f)} cerrado`}</span>
       <b class="vic-big vic-pieza" style="--i:1"><span data-contar="${Math.abs(bal)}" data-pre="${def ? '−' : '+'}">0</span><small>kcal</small></b>
       <span class="vic-sub vic-pieza" style="--i:2">${def ? `≈ ${(Math.abs(bal) / 7700).toFixed(2).replace('.', ',')} kg de grasa` : 'Mañana compensa con un día más ligero'}</span>
@@ -2545,12 +2577,10 @@ function celebrarRun(e, alFin) {
   const t = tipoSesion(`${e.tipo} ${e.notas}`);
   const modo = t === 'series' || t === 'carrera' ? 'rapido' : t === 'z2' ? 'z2' : 'medio';
   const rayas = n => Array.from({ length: n }, (_, i) => `<i class="vic-raya" style="--y:${(i * 53) % 100}%;--w:${30 + (i * 17) % 40}%;--d:${((i * 0.13) % 0.9).toFixed(2)}s"></i>`).join('');
-  const escena = modo === 'z2'
-    ? `<div class="vic-centro"><svg class="vic-corazon" viewBox="0 0 24 24"><path d="M12 21s-8-5.2-8-11.2A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 2.8C20 15.8 12 21 12 21z"/></svg>
-        <svg class="vic-ecg" viewBox="0 0 200 40"><path d="M0 20h60l8-12 10 24 8-18 6 6h108"/></svg><b class="vic-grito">ZONA 2</b></div>`
-    : `${rayas(modo === 'rapido' ? 22 : 12)}<div class="vic-centro"><span class="vic-sym">${SIMBOLO[t]}</span><b class="vic-grito">${modo === 'rapido' ? '¡A TOPE!' : '¡SESIÓN HECHA!'}</b></div>`;
+  const ecg = Array.from({ length: 4 }, (_, i) => `<svg class="vic-ecg" style="--y:${14 + i * 23}%;--d:${(i * 0.35).toFixed(2)}s" viewBox="0 0 400 40" preserveAspectRatio="none"><path d="M0 20h120l10-14 12 28 10-22 8 8h70l10-14 12 28 10-22 8 8h120"/></svg>`).join('');
   victoria({
-    clase: `vic-run vic-${modo}`, alFin, duracion: modo === 'z2' ? 2900 : 2500, escena,
+    clase: `vic-run vic-${modo}`, alFin, duracion: modo === 'z2' ? 2200 : 1800, destino: '#logro',
+    escena: modo === 'z2' ? `<i class="vic-pulso"></i>${ecg}` : rayas(modo === 'rapido' ? 28 : 14),
     tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">Logro del día · ${esc(e.tipo)}</span>
       <b class="vic-big vic-pieza" style="--i:1"><span data-contar="${num(e.distancia_km)}" data-dec="2">0</span><small>km</small></b>
       <span class="vic-sub vic-pieza" style="--i:2">${DIAS_LARGOS[dow(e.fecha)]} ${diaMes(e.fecha)}</span>
@@ -2558,16 +2588,14 @@ function celebrarRun(e, alFin) {
   });
 }
 
-// Fuerza: siempre un levantamiento de pesas.
+// Fuerza: barras con discos a lo ancho de la pantalla que suben y bajan como un levantamiento.
 function celebrarFuerza(s, alFin) {
   marcarCelebrado(refFz(s));
+  const barras = Array.from({ length: 5 }, (_, i) => `<svg class="vic-barra" style="--y:${10 + i * 19}%;--d:${(i * 0.12).toFixed(2)}s" viewBox="0 0 400 40" preserveAspectRatio="none">
+    <rect x="0" y="18" width="400" height="4" rx="2" class="eje"/><rect x="18" y="4" width="16" height="32" rx="3"/><rect x="38" y="9" width="10" height="22" rx="3"/>
+    <rect x="366" y="4" width="16" height="32" rx="3"/><rect x="352" y="9" width="10" height="22" rx="3"/></svg>`).join('');
   victoria({
-    clase: 'vic-fz', alFin, duracion: 2700,
-    escena: `<div class="vic-centro"><svg class="vic-pesa" viewBox="0 0 220 70">
-        <rect x="18" y="32" width="184" height="6" rx="3" class="barra"/>
-        <rect x="22" y="14" width="14" height="42" rx="3"/><rect x="38" y="20" width="10" height="30" rx="3"/>
-        <rect x="184" y="14" width="14" height="42" rx="3"/><rect x="172" y="20" width="10" height="30" rx="3"/></svg>
-      <b class="vic-grito">¡FUERZA!</b></div>`,
+    clase: 'vic-fz', alFin, duracion: 2000, escena: barras, destino: '.fz-logro',
     tarjeta: `<span class="vic-tag vic-pieza" style="--i:0">Fuerza completada</span>
       <b class="vic-big vic-pieza cap" style="--i:1;font-size:34px">${esc(s.rutina)}</b>
       <span class="vic-sub vic-pieza" style="--i:2">${DIAS_LARGOS[dow(s.fecha)]} ${diaMes(s.fecha)}</span>
@@ -2651,3 +2679,9 @@ Promise.race([Promise.all([splashMin, cargaInicial.catch(() => {})]), splashMax]
   if (seccion === 'nutri' || seccion === 'run') render();
   if (location.hash === '#comida' && cfg.token) abrirSheet();
 });
+
+// Comprobación de datos nuevos cada minuto con la app abierta (p. ej. una carrera recién sincronizada desde Strava).
+// Con las descargas condicionales, si nada cambió GitHub responde «sin cambios» y no se repinta nada.
+setInterval(() => {
+  if (!document.hidden && cfg.token && $('#sheet').hidden && $('#inmersion').hidden && !celebrando && !($('#hist') && !$('#hist').hidden)) cargar(true);
+}, 60000);
